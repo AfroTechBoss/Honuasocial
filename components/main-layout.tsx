@@ -33,16 +33,11 @@ import {
   Sun,
   Moon,
   Shield,
-  UserPlus,
-  ShoppingBag,
 } from "lucide-react"
 import Link from "next/link"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import Image from "next/image"
 import SearchModal from "@/components/search-modal"
-import InviteModal from "@/components/invite-modal"
-import { MarketplaceNotifications } from "@/components/marketplace/notifications"
-import { useCart } from "@/hooks/use-cart"
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -58,19 +53,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
   const session = useSession()
   const router = useRouter()
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
   const supabase = createClientComponentClient()
-  const { items } = useCart()
 
   // Define navigation items with dynamic badges
   const navigationItems = [
     { icon: Home, label: "Home", href: "/", badge: null },
     { icon: Compass, label: "Explore", href: "/explore", badge: null },
-    { icon: ShoppingBag, label: "Marketplace", href: "/marketplace", badge: items.length > 0 ? items.length : null },
     { icon: Bookmark, label: "Bookmarks", href: "/bookmarks", badge: null },
     { icon: Bell, label: "Notifications", href: "/notifications", badge: unreadNotifications > 0 ? unreadNotifications : null },
     { icon: MessageCircle, label: "Messages", href: "/messages", badge: unreadMessages > 0 ? unreadMessages : null },
@@ -109,7 +101,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-      
       const response = await fetch(`/api/notifications?recipient_id=${session.user.id}&read=false&count_only=true`, {
         method: 'GET',
         headers: {
@@ -325,19 +316,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
               </li>
             )
           })}
-          {/* Mobile-only Invite Friends action */}
-          <li className="lg:hidden">
-            <button
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 w-full"
-              onClick={() => {
-                setIsInviteModalOpen(true)
-                setIsMobileMenuOpen(false)
-              }}
-            >
-              <UserPlus className="w-5 h-5" />
-              <span className="font-medium">Invite Friends</span>
-            </button>
-          </li>
+          
         </ul>
       </nav>
 
@@ -437,19 +416,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         {/* Desktop Header */}
         <div className="hidden lg:flex items-center justify-end p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center space-x-4">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setIsInviteModalOpen(true)}
-              className="text-green-600 border-green-600 hover:bg-green-50 dark:text-green-400 dark:border-green-400 dark:hover:bg-green-900/20"
-            >
-              <UserPlus className="w-4 h-4 mr-2" />
-              Invite Friends
-            </Button>
             
-            {session?.user?.id && (
-              <MarketplaceNotifications userId={session.user.id} />
-            )}
             
             <Button variant="ghost" size="sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {mounted && theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -561,10 +528,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       />
       
       {/* Invite Modal */}
-      <InviteModal 
-        isOpen={isInviteModalOpen} 
-        onClose={() => setIsInviteModalOpen(false)} 
-      />
+      
     </div>
   )
 }
