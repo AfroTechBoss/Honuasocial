@@ -11,7 +11,6 @@ export async function GET(
   const { id } = params
 
   try {
-    // Check if forum exists
     const { data: forum, error: forumError } = await supabase
       .from('forums')
       .select('id')
@@ -27,7 +26,6 @@ export async function GET(
       return NextResponse.json({ error: 'Forum not found' }, { status: 404 })
     }
 
-    // Get threads for this forum
     const { data: threads, error: threadsError } = await supabase
       .from('threads')
       .select(`
@@ -43,8 +41,28 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch threads' }, { status: 500 })
     }
 
-    // Format the response
-    const formattedThreads = threads.map((thread) => ({
+    const threadIds = (threads || []).map((thread) => thread.id)
+    const repliesByThread = new Map<string, number>()
+
+    if (threadIds.length > 0) {
+      const threadIdsCsv = threadIds.map((threadId) => '"' + threadId + '"').join(',')
+      const { data: comments, error: commentsError } = await supabase
+        .from('comments')
+        .select('id, thread_id, post_id')
+        .or(`thread_id.in.(${threadIdsCsv}),post_id.in.(${threadIdsCsv})`)
+
+      if (commentsError) {
+        console.error('Error fetching thread reply counts:', commentsError)
+      } else {
+        for (const comment of comments || []) {
+          const threadId = comment.thread_id || comment.post_id
+          if (!threadId) continue
+          repliesByThread.set(threadId, (repliesByThread.get(threadId) || 0) + 1)
+        }
+      }
+    }
+
+    const formattedThreads = (threads || []).map((thread) => ({
       id: thread.id,
       title: thread.title,
       content: thread.content,
@@ -57,8 +75,8 @@ export async function GET(
         full_name: thread.profiles?.full_name,
         avatar_url: thread.profiles?.avatar_url,
       },
-      replies_count: 0, // Would need a separate query to get actual replies count
-      views_count: 0, // Would need a separate table to track views
+      replies_count: repliesByThread.get(thread.id) || 0,
+      views_count: thread.views_count || 0,
       is_pinned: thread.is_pinned || false,
       is_locked: thread.is_locked || false,
     }))
@@ -79,7 +97,6 @@ export async function POST(
   const { id } = params
 
   try {
-    // Check if user is authenticated
     const {
       data: { session },
     } = await supabase.auth.getSession()
@@ -90,7 +107,6 @@ export async function POST(
 
     const userId = session.user.id
 
-    // Check if forum exists
     const { data: forum, error: forumError } = await supabase
       .from('forums')
       .select('id, is_private, admin_id')
@@ -106,27 +122,19 @@ export async function POST(
       return NextResponse.json({ error: 'Forum not found' }, { status: 404 })
     }
 
-    // If forum is private, check if user is the admin
     if (forum.is_private && forum.admin_id !== userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Get request body
     const { title, content, is_pinned, is_locked } = await request.json()
 
-    // Validate required fields
     if (!title || !content) {
-      return NextResponse.json(
-        { error: 'Title and content are required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Title and content are required' }, { status: 400 })
     }
 
-    // Only forum admin can create pinned or locked threads
     const isPinned = forum.admin_id === userId ? is_pinned || false : false
     const isLocked = forum.admin_id === userId ? is_locked || false : false
 
-    // Insert new thread
     const { data: thread, error } = await supabase
       .from('threads')
       .insert({
@@ -147,13 +155,11 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 })
     }
 
-    // Update forum's updated_at timestamp
     await supabase
       .from('forums')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', id)
 
-    // Format the response to match the GET endpoint structure
     const formattedThread = {
       id: thread[0].id,
       title: thread[0].title,
@@ -168,7 +174,7 @@ export async function POST(
         avatar_url: thread[0].profiles?.avatar_url,
       },
       replies_count: 0,
-      views_count: 0,
+      views_count: thread[0].views_count || 0,
       is_pinned: thread[0].is_pinned || false,
       is_locked: thread[0].is_locked || false,
     }
@@ -179,3 +185,4 @@ export async function POST(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

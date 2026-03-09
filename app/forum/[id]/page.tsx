@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import MainLayout from "@/components/main-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import {
   Users,
@@ -72,15 +73,6 @@ type Forum = {
   rules?: string[]
 }
 
-// Default cover images for forums without custom covers
-const defaultCoverImages = [
-  "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800&h=200&fit=crop",
-  "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&h=200&fit=crop",
-  "https://images.unsplash.com/photo-1569163139394-de4e4f43e4e3?w=800&h=200&fit=crop",
-  "https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=800&h=200&fit=crop",
-  "https://images.unsplash.com/photo-1497436072909-60f360e1d4b1?w=800&h=200&fit=crop",
-]
-
 const formatTimeAgo = (dateString: string) => {
   const date = new Date(dateString)
   const now = new Date()
@@ -94,7 +86,6 @@ const formatTimeAgo = (dateString: string) => {
 
 export default function ForumDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const { toast } = useToast()
   const supabase = createClientComponentClient()
   const forumId = params.id as string
@@ -104,6 +95,7 @@ export default function ForumDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [threadSort, setThreadSort] = useState("activity")
   const [newThreadTitle, setNewThreadTitle] = useState("")
   const [newThreadContent, setNewThreadContent] = useState("")
   const [isCreatingThread, setIsCreatingThread] = useState(false)
@@ -178,6 +170,12 @@ export default function ForumDetailPage() {
     thread.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     thread.content?.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  const sortedThreads = [...filteredThreads].sort((a, b) => {
+    if (threadSort === "replies") return (b.replies_count || 0) - (a.replies_count || 0)
+    if (threadSort === "views") return (b.views_count || 0) - (a.views_count || 0)
+    return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
+  })
 
   // Handle creating a new thread
   const handleCreateThread = async () => {
@@ -345,7 +343,7 @@ export default function ForumDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6">
           <div className="lg:col-span-3">
             {/* Search and Filters */}
-            <div className="mb-4 sm:mb-6">
+            <div className="mb-4 sm:mb-6 space-y-2">
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -356,7 +354,18 @@ export default function ForumDetailPage() {
                     className="pl-10 h-10 sm:h-auto text-sm sm:text-base"
                   />
                 </div>
+                <Select value={threadSort} onValueChange={setThreadSort}>
+                  <SelectTrigger className="w-full sm:w-[220px] h-10 sm:h-auto">
+                    <SelectValue placeholder="Sort threads" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="activity">Latest Activity</SelectItem>
+                    <SelectItem value="replies">Most Replies</SelectItem>
+                    <SelectItem value="views">Most Views</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              <p className="text-xs sm:text-sm text-muted-foreground">{sortedThreads.length} threads found</p>
             </div>
 
             {/* Create Thread Form */}
@@ -421,7 +430,7 @@ export default function ForumDetailPage() {
 
             {/* Threads List */}
             <div className="space-y-3 sm:space-y-4">
-              {filteredThreads.length === 0 ? (
+              {sortedThreads.length === 0 ? (
                 <Card>
                   <CardContent className="p-4 sm:p-6 text-center">
                     <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm sm:text-base">No threads found</p>
@@ -445,7 +454,7 @@ export default function ForumDetailPage() {
                   </CardContent>
                 </Card>
               ) : (
-                filteredThreads.map((thread) => (
+                sortedThreads.map((thread) => (
                   <Card key={thread.id} className="hover:shadow-md transition-shadow overflow-hidden">
                     <CardContent className="p-3 sm:p-6">
                       <div className="flex items-start space-x-3 sm:space-x-4">
@@ -607,3 +616,4 @@ export default function ForumDetailPage() {
     </MainLayout>
   )
 }
+

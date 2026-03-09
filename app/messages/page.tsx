@@ -582,7 +582,7 @@ function MessagesPageContent() {
 
   return (
     <MainLayout>
-      <div className="h-[calc(100vh-3.5rem)] lg:h-full min-h-0 flex flex-col">
+      <div className="h-[calc(100dvh-3.5rem)] lg:h-full min-h-0 flex flex-col">
         {/* Mobile: conversation list only; tap conversation -> /messages/[id] */}
         <div className="lg:hidden flex-1 flex flex-col min-h-0">
           <ConversationList
@@ -644,7 +644,7 @@ export default function MessagesPage() {
   return (
     <Suspense fallback={
       <MainLayout>
-        <div className="h-screen flex">
+        <div className="h-dvh flex">
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <Loader2 className="w-8 h-8 animate-spin text-green-600 mx-auto mb-4" />
@@ -660,3 +660,4 @@ export default function MessagesPage() {
     </Suspense>
   )
 }
+

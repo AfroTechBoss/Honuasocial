@@ -224,16 +224,16 @@ export function ChatInterface({
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full min-h-0 flex flex-col bg-background">
       {/* Chat Header */}
-      <div className="p-4 border-b border-border bg-background">
+      <div className="p-4 border-b border-border bg-background flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {showMobileView && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => router.back()}
+                onClick={() => router.push("/messages")}
                 className="p-3 min-h-[44px] min-w-[44px]"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -298,7 +298,7 @@ export function ChatInterface({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 md:p-4 space-y-3 md:space-y-4">
         {isOtherTyping && (
           <div className="flex justify-start">
             <div className="px-3 py-2 rounded-full bg-green-100 text-green-800 text-xs shadow-sm">
@@ -426,7 +426,7 @@ export function ChatInterface({
 
       {/* Reply Preview */}
       {replyingTo && (
-        <div className="px-4 py-3 bg-muted/50 border-t border-border">
+        <div className="px-4 py-3 bg-muted/50 border-t border-border flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <p className="text-xs text-muted-foreground">Replying to {replyingTo.sender?.full_name}</p>
@@ -438,14 +438,14 @@ export function ChatInterface({
               onClick={onCancelReply}
               className="p-2 min-h-[32px] min-w-[32px]"
             >
-              ×
+              X
             </Button>
           </div>
         </div>
       )}
 
       {/* Message Input */}
-      <div className="p-4 border-t border-border bg-background">
+      <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-background flex-shrink-0">
         <div className="flex items-end gap-3 md:gap-2">
           <div className="relative">
             <Button
@@ -558,3 +558,4 @@ export function ChatInterface({
     </div>
   )
 }
+

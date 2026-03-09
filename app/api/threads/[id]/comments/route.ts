@@ -2,6 +2,27 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
+type RawComment = {
+  id: string
+  content: string
+  created_at: string
+  parent_id: string | null
+  profiles: {
+    username?: string
+    full_name?: string
+    avatar_url?: string
+  } | null
+}
+
+type CommentNode = {
+  id: string
+  content: string
+  created_at: string
+  parent_id: string | null
+  profiles: RawComment['profiles']
+  children: CommentNode[]
+}
+
 // GET /api/threads/[id]/comments - Get comments for a thread
 export async function GET(
   request: NextRequest,
@@ -9,35 +30,30 @@ export async function GET(
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
-    const params = await context.params;
-    const { id: threadId } = params;
+    const params = await context.params
+    const { id: threadId } = params
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const offset = (page - 1) * limit
 
     // Get current user session (optional for viewing comments)
-    const { data: { session } } = await supabase.auth.getSession()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
 
     // Verify thread exists
-    const { data: thread, error: threadError } = await supabase
-      .from('threads')
-      .select('id')
-      .eq('id', threadId)
-      .single()
+    const { data: thread, error: threadError } = await supabase.from('threads').select('id').eq('id', threadId).single()
 
     if (threadError || !thread) {
-      return NextResponse.json(
-        { error: 'Thread not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
     }
 
-    // Get comments for the thread
-    // Try thread_id first, fallback to post_id if thread_id column doesn't exist
-    const commentsQuery = supabase
+    // Get all comments for the thread, then build a nested tree.
+    const { data: comments, error: commentsError } = await supabase
       .from('comments')
-      .select(`
+      .select(
+        `
         id,
         content,
         created_at,
@@ -50,99 +66,86 @@ export async function GET(
           full_name,
           avatar_url
         )
-      `)
+      `
+      )
       .or(`thread_id.eq.${threadId},post_id.eq.${threadId}`)
-      .is('parent_id', null) // Only get top-level comments
       .order('created_at', { ascending: true })
-      .range(offset, offset + limit - 1)
-
-    const { data: comments, error: commentsError } = await commentsQuery
 
     if (commentsError) {
       console.error('Error fetching comments:', commentsError)
-      return NextResponse.json(
-        { error: 'Failed to fetch comments' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Failed to fetch comments' }, { status: 500 })
     }
 
-    // Get replies for each comment
-    const commentsWithReplies = await Promise.all(
-      comments.map(async (comment) => {
-        const { data: replies } = await supabase
-          .from('comments')
-          .select(`
-            id,
-            content,
-            created_at,
-            likes_count,
-            profiles:user_id(
-              id,
-              username,
-              full_name,
-              avatar_url
-            )
-          `)
-          .eq('parent_id', comment.id)
-          .order('created_at', { ascending: true })
+    const rawComments = (comments || []) as RawComment[]
+    const commentIds = rawComments.map((comment) => comment.id)
+    const userVotes = new Map<string, 'up' | 'down' | null>()
 
-        // Get user vote for comment if user is logged in
-        let userVote = null
-        if (session?.user) {
-          const { data: vote } = await supabase
-            .from('comment_votes')
-            .select('vote_type')
-            .eq('comment_id', comment.id)
-            .eq('user_id', session.user.id)
-            .single()
-          
-          userVote = vote?.vote_type || null
-        }
+    if (session?.user && commentIds.length > 0) {
+      const { data: votes } = await supabase
+        .from('comment_votes')
+        .select('comment_id, vote_type')
+        .eq('user_id', session.user.id)
+        .in('comment_id', commentIds)
 
-        return {
-          id: comment.id,
-          content: comment.content,
-          author: {
-            username: (comment.profiles as any)?.username || 'Unknown',
-            full_name: (comment.profiles as any)?.full_name || 'Unknown User',
-            avatar_url: (comment.profiles as any)?.avatar_url || '/placeholder.svg',
-            badges: []
-          },
-          likes_count: 0, // Will be implemented with proper vote system
-          dislikes_count: 0, // Will be implemented with proper vote system
-          created_at: comment.created_at,
-          user_vote: userVote,
-          replies: replies?.map(reply => ({
-            id: reply.id,
-            content: reply.content,
-            author: {
-              username: (reply.profiles as any)?.username || 'Unknown',
-              full_name: (reply.profiles as any)?.full_name || 'Unknown User',
-              avatar_url: (reply.profiles as any)?.avatar_url || '/placeholder.svg'
-            },
-            likes_count: 0, // Will be implemented with proper vote system
-            created_at: reply.created_at,
-            user_vote: null // Would need to fetch user votes for replies too
-          })) || []
-        }
+      for (const vote of votes || []) {
+        userVotes.set(vote.comment_id, (vote.vote_type as 'up' | 'down') || null)
+      }
+    }
+
+    const commentMap = new Map<string, CommentNode>()
+    for (const comment of rawComments) {
+      commentMap.set(comment.id, {
+        id: comment.id,
+        content: comment.content,
+        created_at: comment.created_at,
+        parent_id: comment.parent_id,
+        profiles: comment.profiles,
+        children: [],
       })
-    )
+    }
+
+    const rootComments: CommentNode[] = []
+    for (const comment of commentMap.values()) {
+      if (comment.parent_id && commentMap.has(comment.parent_id)) {
+        commentMap.get(comment.parent_id)?.children.push(comment)
+      } else {
+        rootComments.push(comment)
+      }
+    }
+
+    const totalTopLevel = rootComments.length
+    const paginatedRoots = rootComments.slice(offset, offset + limit)
+
+    const serializeComment = (comment: CommentNode): any => ({
+      id: comment.id,
+      content: comment.content,
+      parent_id: comment.parent_id,
+      author: {
+        username: comment.profiles?.username || 'Unknown',
+        full_name: comment.profiles?.full_name || 'Unknown User',
+        avatar_url: comment.profiles?.avatar_url || '/placeholder.svg',
+        badges: [],
+      },
+      likes_count: 0, // Will be implemented with proper vote system
+      dislikes_count: 0, // Will be implemented with proper vote system
+      created_at: comment.created_at,
+      user_vote: userVotes.get(comment.id) || null,
+      replies: comment.children.map(serializeComment),
+    })
+
+    const commentsWithReplies = paginatedRoots.map(serializeComment)
 
     return NextResponse.json({
       comments: commentsWithReplies,
       pagination: {
         page,
         limit,
-        total: comments.length
-      }
+        total: totalTopLevel,
+      },
     })
-
   } catch (error) {
     console.error('Error in GET /api/threads/[id]/comments:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
@@ -153,31 +156,23 @@ export async function POST(
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
-    const params = await context.params;
-    const { id: threadId } = params;
+    const params = await context.params
+    const { id: threadId } = params
     const { content, parent_id } = await request.json()
 
     // Check if user is authenticated
-    const { data: { session } } = await supabase.auth.getSession()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
     if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
     // Verify thread exists
-    const { data: thread, error: threadError } = await supabase
-      .from('threads')
-      .select('id')
-      .eq('id', threadId)
-      .single()
+    const { data: thread, error: threadError } = await supabase.from('threads').select('id').eq('id', threadId).single()
 
     if (threadError || !thread) {
-      return NextResponse.json(
-        { error: 'Thread not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
     }
 
     // If parent_id is provided, verify the parent comment exists
@@ -190,10 +185,7 @@ export async function POST(
         .single()
 
       if (parentError || !parentComment) {
-        return NextResponse.json(
-          { error: 'Parent comment not found' },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 })
       }
     }
 
@@ -202,16 +194,17 @@ export async function POST(
     let insertData: any = {
       content,
       user_id: session.user.id,
-      parent_id: parent_id || null
+      parent_id: parent_id || null,
     }
 
     // Check if thread_id column exists by trying to insert with it first
     insertData.thread_id = threadId
-    
+
     let { data: comment, error: commentError } = await supabase
       .from('comments')
       .insert(insertData)
-      .select(`
+      .select(
+        `
         id,
         content,
         created_at,
@@ -222,7 +215,8 @@ export async function POST(
           full_name,
           avatar_url
         )
-      `)
+      `
+      )
       .single()
 
     // If thread_id column doesn't exist, fallback to post_id
@@ -232,13 +226,14 @@ export async function POST(
         content,
         post_id: threadId,
         user_id: session.user.id,
-        parent_id: parent_id || null
+        parent_id: parent_id || null,
       }
-      
+
       const fallbackResult = await supabase
         .from('comments')
         .insert(insertData)
-        .select(`
+        .select(
+          `
           id,
           content,
           created_at,
@@ -249,45 +244,41 @@ export async function POST(
             full_name,
             avatar_url
           )
-        `)
+        `
+        )
         .single()
-      
+
       comment = fallbackResult.data
       commentError = fallbackResult.error
     }
 
     if (commentError || !comment) {
       console.error('Error creating comment:', commentError)
-      return NextResponse.json(
-        { error: 'Failed to create comment' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 })
     }
 
     // Format the response
     const formattedComment = {
       id: comment.id,
       content: comment.content,
+      parent_id: comment.parent_id || null,
       author: {
         username: (comment.profiles as any)?.username || 'Unknown',
         full_name: (comment.profiles as any)?.full_name || 'Unknown User',
         avatar_url: (comment.profiles as any)?.avatar_url || '/placeholder.svg',
-        badges: []
+        badges: [],
       },
       likes_count: 0, // Will be implemented with proper vote system
       dislikes_count: 0, // Will be implemented with proper vote system
       created_at: comment.created_at,
       user_vote: null,
-      replies: []
+      replies: [],
     }
 
     return NextResponse.json({ comment: formattedComment }, { status: 201 })
-
   } catch (error) {
     console.error('Error in POST /api/threads/[id]/comments:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

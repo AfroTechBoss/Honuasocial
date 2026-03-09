@@ -409,7 +409,7 @@ export default function ConversationPage() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-[calc(100vh-3.5rem)] lg:h-full min-h-0">
+      <div className="flex flex-col h-[calc(100dvh-3.5rem)] lg:h-full min-h-0">
         <div className="flex-1 flex min-h-0">
           <ChatInterface
             conversation={conversation}
@@ -428,3 +428,4 @@ export default function ConversationPage() {
     </MainLayout>
   )
 }
+

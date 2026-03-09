@@ -34,6 +34,7 @@ type Forum = {
 type Thread = {
   id: string
   title: string
+  content: string
   author: {
     username: string
     full_name: string
@@ -67,6 +68,8 @@ export default function ForumPage() {
   const [threads, setThreads] = useState<Thread[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
+  const [forumSort, setForumSort] = useState("recent")
+  const [threadSort, setThreadSort] = useState("activity")
   const [activeTab, setActiveTab] = useState("forums")
   const [isCreateForumOpen, setIsCreateForumOpen] = useState(false)
   const [newForumData, setNewForumData] = useState({
@@ -118,11 +121,6 @@ export default function ForumPage() {
     
     fetchUserSession()
   }, [])
-  
-  // Fetch forums and threads on component mount
-  useEffect(() => {
-    fetchForumsAndThreads()
-  }, [])
 
   const filteredForums = forums.filter((forum) => {
     const matchesSearch =
@@ -138,6 +136,61 @@ export default function ForumPage() {
       thread.author?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
+  const sortedForums = [...filteredForums].sort((a, b) => {
+    if (forumSort === "members") return (b.member_count || 0) - (a.member_count || 0)
+    if (forumSort === "threads") return (b.thread_count || 0) - (a.thread_count || 0)
+    return new Date(b.latest_activity || 0).getTime() - new Date(a.latest_activity || 0).getTime()
+  })
+  const sortedThreads = [...filteredThreads].sort((a, b) => {
+    if (threadSort === "replies") return (b.replies_count || 0) - (a.replies_count || 0)
+    if (threadSort === "views") return (b.views_count || 0) - (a.views_count || 0)
+    return new Date(b.last_activity || 0).getTime() - new Date(a.last_activity || 0).getTime()
+  })
+
+  
+  const categoryCounts = forums.reduce<Record<string, number>>((acc, forum) => {
+    acc[forum.category] = (acc[forum.category] || 0) + 1
+    return acc
+  }, {})
+
+  const activeMembersCount = new Set(
+    [
+      ...forums.map((forum) => forum.creator).filter(Boolean),
+      ...threads.map((thread) => thread.author?.username).filter(Boolean),
+    ].filter((value) => value !== "Unknown User")
+  ).size
+
+  const popularTopics = (() => {
+    const topicCounts = new Map<string, number>()
+    const hashtagRegex = /#([A-Za-z0-9_]+)/g
+
+    for (const thread of threads) {
+      const sourceText = `${thread.title || ""} ${thread.content || ""}`
+      const matches = sourceText.match(hashtagRegex) || []
+      for (const match of matches) {
+        const normalized = `#${match.slice(1)}`
+        topicCounts.set(normalized, (topicCounts.get(normalized) || 0) + 1)
+      }
+    }
+
+    if (topicCounts.size > 0) {
+      return [...topicCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([topic]) => topic)
+    }
+
+    return Object.entries(categoryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([category]) => `#${category.replace(/\s+/g, "")}`)
+  })()
+
+
+  const getCategoryCount = (category: string) => {
+    if (category === "All") return forums.length
+    return categoryCounts[category] || 0
+  }
   // Function to fetch forums and threads - extracted for reuse
   const fetchForumsAndThreads = async () => {
     setIsLoading(true)
@@ -155,15 +208,16 @@ export default function ForumPage() {
       const categories = ['All', ...new Set(userCreatedForums.map((forum: Forum) => forum.category))] as string[]
       setForumCategories(categories)
       
-      // Fetch recent threads from user-created forums only
-      const recentThreadsPromises = userCreatedForums.slice(0, 3).map((forum: Forum) => 
+      // Fetch all threads from user-created forums for accurate stats/topics
+      const threadsPromises = userCreatedForums.map((forum: Forum) => 
         fetch(`/api/forums/${forum.id}/threads`).then(res => res.json())
       )
       
-      const threadsArrays = await Promise.all(recentThreadsPromises)
+      const threadsArrays = await Promise.all(threadsPromises)
       const allThreads = threadsArrays.flat().map((thread: any) => ({
         id: thread.id,
         title: thread.title,
+        content: thread.content || "",
         author: {
           username: thread.author?.username || 'Unknown User',
           full_name: thread.author?.full_name || 'Unknown User',
@@ -358,7 +412,39 @@ export default function ForumPage() {
                     className="pl-10 h-10 sm:h-9"
                   />
                 </div>
+                <Select
+                  value={activeTab === "forums" ? forumSort : threadSort}
+                  onValueChange={(value) => {
+                    if (activeTab === "forums") {
+                      setForumSort(value)
+                    } else {
+                      setThreadSort(value)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-[220px] h-10 sm:h-9">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeTab === "forums" ? (
+                      <>
+                        <SelectItem value="recent">Recently Active</SelectItem>
+                        <SelectItem value="members">Most Members</SelectItem>
+                        <SelectItem value="threads">Most Threads</SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="activity">Latest Activity</SelectItem>
+                        <SelectItem value="replies">Most Replies</SelectItem>
+                        <SelectItem value="views">Most Views</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                {activeTab === "forums" ? sortedForums.length : sortedThreads.length} results
+              </p>
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -372,8 +458,8 @@ export default function ForumPage() {
                   <div className="flex justify-center items-center py-12">
                     <Loader2 className="w-8 h-8 animate-spin text-green-600" />
                   </div>
-                ) : filteredForums.length > 0 ? (
-                  filteredForums.map((forum) => (
+                ) : sortedForums.length > 0 ? (
+                  sortedForums.map((forum) => (
                     <Card key={forum.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-4 sm:p-6">
                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between space-y-3 sm:space-y-0">
@@ -461,8 +547,8 @@ export default function ForumPage() {
                   <div className="flex justify-center items-center py-12">
                     <Loader2 className="w-8 h-8 animate-spin text-green-600" />
                   </div>
-                ) : filteredThreads.length > 0 ? (
-                  filteredThreads.map((thread) => (
+                ) : sortedThreads.length > 0 ? (
+                  sortedThreads.map((thread) => (
                     <Card key={thread.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-4 sm:p-6">
                         <div className="flex items-start space-x-3 sm:space-x-4">
@@ -561,7 +647,7 @@ export default function ForumPage() {
                     className="w-full justify-start text-sm sm:text-base h-8 sm:h-9"
                     onClick={() => setSelectedCategory(category)}
                   >
-                    {category}
+                    {category} ({getCategoryCount(category)})
                   </Button>
                 ))}
               </CardContent>
@@ -576,11 +662,13 @@ export default function ForumPage() {
               </CardHeader>
               <CardContent className="space-y-2 sm:space-y-3 pt-0">
                 <div className="space-y-1 sm:space-y-2">
-                  <p className="text-xs sm:text-sm font-medium">#SolarInstallation</p>
-                  <p className="text-xs sm:text-sm font-medium">#ZeroWasteChallenge</p>
-                  <p className="text-xs sm:text-sm font-medium">#ClimateAction</p>
-                  <p className="text-xs sm:text-sm font-medium">#GreenTech</p>
-                  <p className="text-xs sm:text-sm font-medium">#SustainableLiving</p>
+                  {popularTopics.length > 0 ? (
+                    popularTopics.map((topic) => (
+                      <p key={topic} className="text-xs sm:text-sm font-medium">{topic}</p>
+                    ))
+                  ) : (
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">No topics yet</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -600,7 +688,7 @@ export default function ForumPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Active Members</span>
-                  <span className="font-medium text-sm sm:text-base">5,840</span>
+                  <span className="font-medium text-sm sm:text-base">{activeMembersCount.toLocaleString()}</span>
                 </div>
               </CardContent>
             </Card>
@@ -610,3 +698,4 @@ export default function ForumPage() {
     </MainLayout>
   )
 }
+

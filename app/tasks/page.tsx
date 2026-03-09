@@ -23,7 +23,7 @@ export default function ComingSoonDemo() {
       {/* Coming Soon Component */}
       <ComingSoon
         title="Tasks Coming Soon"
-        description="We're building something incredible for our community. Get ready for a revolutionary marketplace experience that will transform how you connect and trade."
+        description="We're building something incredible for our community. Get ready for an experience that will transform how you get rewarded for your impact."
       />
     </div>
   )
