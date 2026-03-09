@@ -64,6 +64,8 @@ export async function GET() {
 
           return {
             id: conversation.id,
+            participant_one_id: conversation.participant_one_id,
+            participant_two_id: conversation.participant_two_id,
             otherParticipant,
             latestMessage,
             updated_at: conversation.updated_at,
@@ -139,3 +141,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

@@ -445,7 +445,13 @@ export function ChatInterface({
       )}
 
       {/* Message Input */}
-      <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-background flex-shrink-0">
+      <div
+        className={`p-4 border-t border-border bg-background flex-shrink-0 ${
+          showMobileView
+            ? "pb-[calc(5.25rem+env(safe-area-inset-bottom))]"
+            : "pb-[max(1rem,env(safe-area-inset-bottom))]"
+        }`}
+      >
         <div className="flex items-end gap-3 md:gap-2">
           <div className="relative">
             <Button
@@ -558,4 +564,5 @@ export function ChatInterface({
     </div>
   )
 }
+
 

@@ -4,76 +4,80 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { conversationId: string } }
+  context: { params: Promise<{ conversationId: string }> }
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
-    const { conversationId } = params
+    const { conversationId } = await context.params
 
-    // Get the current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch the conversation with participant details
     const { data: conversation, error } = await supabase
       .from('conversations')
-      .select(`
-        id,
-        participant_one_id,
-        participant_two_id,
-        created_at,
-        updated_at,
-        participant_1:profiles!participant_one_id(
-          id,
-          username,
-          full_name,
-          avatar_url,
-          is_online
-        ),
-        participant_2:profiles!participant_two_id(
-          id,
-          username,
-          full_name,
-          avatar_url,
-          is_online
-        )
-      `)
+      .select('id, participant_one_id, participant_two_id, created_at, updated_at')
       .eq('id', conversationId)
       .single()
 
-    if (error) {
+    if (error || !conversation) {
       console.error('Error fetching conversation:', error)
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    // Check if user is a participant in this conversation
     if (conversation.participant_one_id !== user.id && conversation.participant_two_id !== user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Determine the other participant
-    const otherParticipant = conversation.participant_one_id === user.id 
-      ? conversation.participant_2 
-      : conversation.participant_1
+    const otherParticipantId =
+      conversation.participant_one_id === user.id
+        ? conversation.participant_two_id
+        : conversation.participant_one_id
 
-    // Format the response
+    let otherParticipant: {
+      id: string
+      username: string | null
+      full_name: string | null
+      avatar_url: string | null
+      is_online: boolean
+    } | null = null
+
+    if (otherParticipantId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url, is_online')
+        .eq('id', otherParticipantId)
+        .single()
+
+      if (profile) {
+        otherParticipant = {
+          id: profile.id,
+          username: profile.username,
+          full_name: profile.full_name,
+          avatar_url: profile.avatar_url,
+          is_online: !!profile.is_online,
+        }
+      }
+    }
+
     const formattedConversation = {
       id: conversation.id,
       participant_one_id: conversation.participant_one_id,
       participant_two_id: conversation.participant_two_id,
       created_at: conversation.created_at,
       updated_at: conversation.updated_at,
-      otherParticipant
+      otherParticipant,
     }
 
     return NextResponse.json(formattedConversation)
   } catch (error) {
     console.error('Error in conversation API:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

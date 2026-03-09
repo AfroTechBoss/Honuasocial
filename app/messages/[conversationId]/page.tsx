@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import type { User } from '@supabase/auth-helpers-nextjs'
@@ -59,129 +59,126 @@ export default function ConversationPage() {
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClientComponentClient()
-  
+
   const conversationId = params.conversationId as string
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  
+
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Fetch conversation details
-  const fetchConversation = async () => {
-    try {
-      const { data: conv, error } = await supabase
-        .from('conversations')
-        .select('id, participant_one_id, participant_two_id, created_at, updated_at')
-        .eq('id', conversationId)
-        .single()
-      
-      if (error || !conv) {
-        console.error('Error fetching conversation:', {
-          message: (error as any)?.message,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-          code: (error as any)?.code
-        })
-        toast({
-          title: "Error",
-          description: "Conversation not found",
-          variant: "destructive"
-        })
-        return
-      }
-      
-      if (conv.participant_one_id !== user?.id && conv.participant_two_id !== user?.id) {
-        toast({
-          title: "Error",
-          description: "You don't have access to this conversation",
-          variant: "destructive"
-        })
-        return
-      }
-      
-      const otherId = conv.participant_one_id === user?.id ? conv.participant_two_id : conv.participant_one_id
-      let otherProfile: any | undefined
-      if (otherId) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id, username, full_name, avatar_url, is_online')
-          .eq('id', otherId)
-          .single()
-        otherProfile = profile || undefined
-      }
-      
-      setConversation({
-        id: conv.id,
-        participant_one_id: conv.participant_one_id,
-        participant_two_id: conv.participant_two_id,
-        created_at: conv.created_at,
-        updated_at: conv.updated_at,
-        otherParticipant: otherProfile ? {
-          id: otherProfile.id,
-          username: otherProfile.username,
-          full_name: otherProfile.full_name,
-          avatar_url: otherProfile.avatar_url,
-          is_online: !!otherProfile.is_online
-        } : undefined
-      })
-    } catch (error) {
-      console.error('Error fetching conversation:', error)
-      toast({
-        title: "Error",
-        description: "Failed to load conversation",
-        variant: "destructive"
-      })
+  const normalizeConversation = (conv: any): Conversation => {
+    const fallbackOtherId = conv.participant_one_id === user?.id ? conv.participant_two_id : conv.participant_one_id
+    const sourceOther = conv.otherParticipant
+
+    const normalizedOtherParticipant = sourceOther
+      ? {
+          id: sourceOther.id,
+          username: sourceOther.username || 'user',
+          full_name: sourceOther.full_name || sourceOther.username || 'User',
+          avatar_url: sourceOther.avatar_url || '/placeholder.svg',
+          is_online: !!sourceOther.is_online,
+        }
+      : fallbackOtherId
+        ? {
+            id: fallbackOtherId,
+            username: 'user',
+            full_name: 'User',
+            avatar_url: '/placeholder.svg',
+            is_online: false,
+          }
+        : undefined
+
+    return {
+      id: conv.id,
+      participant_one_id: conv.participant_one_id,
+      participant_two_id: conv.participant_two_id,
+      created_at: conv.created_at,
+      updated_at: conv.updated_at,
+      otherParticipant: normalizedOtherParticipant,
     }
   }
 
-  // Fetch messages for the conversation
+    const isGenericParticipant = (participant?: Conversation['otherParticipant']) => {
+    if (!participant) return true
+    const fullName = (participant.full_name || '').trim().toLowerCase()
+    const username = (participant.username || '').trim().toLowerCase()
+    return fullName === '' || fullName === 'user' || username === '' || username === 'user'
+  }
+
+  const fetchConversationFromList = async (): Promise<Conversation | null> => {
+    const listResponse = await fetch('/api/conversations')
+    if (!listResponse.ok) return null
+
+    const list = await listResponse.json()
+    const matched = (Array.isArray(list) ? list : []).find((item: any) => item.id === conversationId)
+    if (!matched) return null
+
+    return {
+      id: matched.id,
+      participant_one_id: matched.participant_one_id,
+      participant_two_id: matched.participant_two_id,
+      created_at: matched.created_at,
+      updated_at: matched.updated_at,
+      otherParticipant: matched.otherParticipant
+        ? {
+            id: matched.otherParticipant.id,
+            username: matched.otherParticipant.username || 'user',
+            full_name: matched.otherParticipant.full_name || matched.otherParticipant.username || 'User',
+            avatar_url: matched.otherParticipant.avatar_url || '/placeholder.svg',
+            is_online: !!matched.otherParticipant.is_online,
+          }
+        : undefined,
+    }
+  }
+
+  const fetchConversation = async () => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`)
+      if (response.ok) {
+        const conv = await response.json()
+        const normalized = normalizeConversation(conv)
+
+        if (isGenericParticipant(normalized.otherParticipant)) {
+          const fallbackConversation = await fetchConversationFromList()
+          if (fallbackConversation && !isGenericParticipant(fallbackConversation.otherParticipant)) {
+            setConversation(fallbackConversation)
+            return
+          }
+        }
+
+        setConversation(normalized)
+        return
+      }
+
+      const fallbackConversation = await fetchConversationFromList()
+      if (!fallbackConversation) {
+        throw new Error('Failed to fetch conversation')
+      }
+
+      setConversation(fallbackConversation)
+    } catch (error) {
+      console.error('Error fetching conversation:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load conversation',
+        variant: 'destructive',
+      })
+    }
+  }
   const fetchMessages = async () => {
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select(`
-          *,
-          sender:profiles!messages_sender_id_fkey (
-            id,
-            username,
-            full_name,
-            avatar_url
-          ),
-          reply_to_message:messages!messages_reply_to_fkey (
-            id,
-            content,
-            sender:profiles!messages_sender_id_fkey (*)
-          )
-        `)
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-      
-      if (error) {
-        console.error('Error fetching messages:', {
-          message: (error as any)?.message,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-          code: (error as any)?.code
-        })
-      } else {
-        const transformed = (data || []).map((m: any) => ({
-          ...m,
-          reply_to: m.reply_to_message ? {
-            id: m.reply_to_message.id,
-            content: m.reply_to_message.content,
-            sender: {
-              full_name: m.reply_to_message.sender?.full_name
-            }
-          } : undefined
-        }))
-        setMessages(transformed)
+      const response = await fetch(`/api/messages?conversation_id=${conversationId}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch messages')
       }
-      // Mark as read when we load the conversation
+
+      const data = await response.json()
+      setMessages(Array.isArray(data) ? data : [])
+
       fetch('/api/messages/mark-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,38 +186,45 @@ export default function ConversationPage() {
       }).catch(() => {})
     } catch (error) {
       console.error('Error fetching messages:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load messages',
+        variant: 'destructive',
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  // Initialize authentication
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       setUser(user)
       setAuthLoading(false)
     }
-    
+
     getUser()
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       setAuthLoading(false)
     })
-    
+
     return () => subscription.unsubscribe()
   }, [])
 
-  // Load conversation and messages on mount
   useEffect(() => {
     if (!user?.id || !conversationId) return
-    
+
+    setLoading(true)
     fetchConversation()
     fetchMessages()
-  }, [user, conversationId])
+  }, [user?.id, conversationId])
 
-  // Set up real-time subscriptions (INSERT + UPDATE for ticks)
   useEffect(() => {
     if (!user?.id || !conversationId) return
 
@@ -234,42 +238,15 @@ export default function ConversationPage() {
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload: { new: Record<string, unknown> }) => {
-          const id = payload.new?.id as string
-          if (!id) return
-          const { data: msg } = await supabase
-            .from('messages')
-            .select(`
-              *,
-              sender:profiles!messages_sender_id_fkey(id,username,full_name,avatar_url),
-              reply_to_message:messages!messages_reply_to_fkey(id,content,sender:profiles!messages_sender_id_fkey(*))
-            `)
-            .eq('id', id)
-            .single()
-          if (msg) {
-            const withReply = {
-              ...msg,
-              reply_to: (msg as any).reply_to_message
-                ? {
-                    id: (msg as any).reply_to_message.id,
-                    content: (msg as any).reply_to_message.content,
-                    sender: {
-                      full_name: (msg as any).reply_to_message.sender?.full_name,
-                    },
-                  }
-                : undefined,
-            }
-            setMessages(prev => {
-              if (prev.some(m => m.id === (msg as Message).id)) return prev
-              return [...prev, withReply as Message]
-            })
-            if ((msg as Message).sender_id !== user?.id) {
-              fetch('/api/messages/mark-delivered', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message_id: (msg as Message).id }),
-              }).catch(() => {})
-            }
+        (payload: { new: Record<string, unknown> }) => {
+          const incomingId = payload.new?.id as string | undefined
+          fetchMessages()
+          if (incomingId && payload.new?.sender_id !== user?.id) {
+            fetch('/api/messages/mark-delivered', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message_id: incomingId }),
+            }).catch(() => {})
           }
         }
       )
@@ -281,24 +258,43 @@ export default function ConversationPage() {
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload: { new: Record<string, unknown> }) => {
-          const updated = payload.new as Partial<Message>
-          if (!updated?.id) return
-          setMessages(prev =>
-            prev.map(m => (m.id === updated.id ? { ...m, ...updated } : m))
-          )
+        () => {
+          fetchMessages()
         }
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(ch) }
+    return () => {
+      supabase.removeChannel(ch)
+    }
   }, [user?.id, conversationId])
 
-  // Scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
 
+  useEffect(() => {
+    if (!conversation || !user?.id || messages.length === 0) return
+    if (!isGenericParticipant(conversation.otherParticipant)) return
+
+    const otherMessage = messages.find((message) => message.sender_id !== user.id && message.sender)
+    if (!otherMessage?.sender) return
+
+    setConversation((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        otherParticipant: {
+          id: otherMessage.sender?.id || prev.otherParticipant?.id || 'unknown',
+          username: otherMessage.sender?.username || prev.otherParticipant?.username || 'user',
+          full_name:
+            otherMessage.sender?.full_name ||
+            otherMessage.sender?.username ||
+            prev.otherParticipant?.full_name ||
+            'User',
+          avatar_url: otherMessage.sender?.avatar_url || prev.otherParticipant?.avatar_url || '/placeholder.svg',
+          is_online: prev.otherParticipant?.is_online || false,
+        },
+      }
+    })
+  }, [messages, conversation, user?.id])
   if (authLoading) {
     return (
       <MainLayout>
@@ -345,66 +341,57 @@ export default function ConversationPage() {
           <div className="text-center">
             <h2 className="text-xl font-semibold mb-2">Conversation not found</h2>
             <p className="text-gray-600 mb-4">This conversation may have been deleted or you don't have access to it.</p>
-            <Button onClick={() => router.push('/messages')}>
-              Back to Messages
-            </Button>
+            <Button onClick={() => router.push('/messages')}>Back to Messages</Button>
           </div>
         </div>
       </MainLayout>
     )
   }
 
-  const handleSendMessageWithReply = (content: string, replyToId?: string) => {
+  const handleSendMessageWithReply = async (content: string, replyToId?: string) => {
     if (!conversation || sendingMessage) return
-    setSendingMessage(true)
+
     const trimmed = content.trim()
-    if (!trimmed) { setSendingMessage(false); return }
-    supabase
-      .from('messages')
-      .insert({
-        conversation_id: conversation.id,
-        sender_id: user?.id,
-        content: trimmed,
-        reply_to_id: replyToId || replyingTo?.id || null,
+    if (!trimmed) return
+
+    setSendingMessage(true)
+
+    try {
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversation_id: conversation.id,
+          content: trimmed,
+          reply_to_id: replyToId || replyingTo?.id || null,
+        }),
       })
-      .select(`
-        *,
-        sender:profiles!messages_sender_id_fkey(id,username,full_name,avatar_url),
-        reply_to_message:messages!messages_reply_to_fkey(id,content,sender:profiles!messages_sender_id_fkey(*))
-      `)
-      .single()
-      .then(({ data: message, error }) => {
-        setSendingMessage(false)
-        if (error) {
-          toast({
-            title: "Error",
-            description: "Failed to send message",
-            variant: "destructive",
-          })
-          return
-        }
-        if (message) {
-          const withReply = {
-            ...message,
-            reply_to: (message as any).reply_to_message
-              ? {
-                  id: (message as any).reply_to_message.id,
-                  content: (message as any).reply_to_message.content,
-                  sender: {
-                    full_name: (message as any).reply_to_message.sender?.full_name,
-                  },
-                }
-              : undefined,
-          }
-          setMessages(prev => [...prev, withReply as Message])
-          setReplyingTo(null)
-        }
+
+      if (!response.ok) {
+        throw new Error('Failed to send message')
+      }
+
+      const message = await response.json()
+      setMessages((prev) => [...prev, message])
+      setReplyingTo(null)
+
+      fetch('/api/messages/mark-delivered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: message.id }),
+      }).catch(() => {})
+    } catch (error) {
+      console.error('Error sending message:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to send message',
+        variant: 'destructive',
       })
-    supabase
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversation.id)
-      .then(() => {})
+    } finally {
+      setSendingMessage(false)
+    }
   }
 
   return (
@@ -428,4 +415,6 @@ export default function ConversationPage() {
     </MainLayout>
   )
 }
+
+
 
