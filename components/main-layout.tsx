@@ -33,6 +33,7 @@ import {
   Sun,
   Moon,
   Shield,
+  Leaf,
 } from "lucide-react"
 import Link from "next/link"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
@@ -68,6 +69,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     { icon: MessageCircle, label: "Messages", href: "/messages", badge: unreadMessages > 0 ? unreadMessages : null },
     { icon: Users, label: "Forum", href: "/forum", badge: null },
     { icon: CheckSquare, label: "Tasks", href: "/tasks", badge: null },
+    { icon: Leaf, label: "Points", href: "/points", badge: null },
     { icon: User, label: "Profile", href: "/profile", badge: null },
     { icon: Settings, label: "Settings", href: "/settings", badge: null },
   ]

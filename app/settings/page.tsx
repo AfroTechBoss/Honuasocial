@@ -201,6 +201,7 @@ export default function SettingsPage() {
   } | null>(null)
   const [uploadingDocuments, setUploadingDocuments] = useState(false)
   const [submittingUpgrade, setSubmittingUpgrade] = useState(false)
+  const [stats, setStats] = useState({ posts: 0, followers: 0, following: 0 })
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -540,6 +541,32 @@ export default function SettingsPage() {
       setSubmittingUpgrade(false)
     }
   }
+
+  useEffect(() => {
+    const loadStats = async () => {
+      if (!session?.user?.id) return
+      try {
+        const supabase = createClient()
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('followers_count, following_count')
+          .eq('id', session.user.id)
+          .single()
+        const { count: postsCount } = await supabase
+          .from('posts')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', session.user.id)
+        setStats({
+          posts: postsCount || 0,
+          followers: profile?.followers_count || 0,
+          following: profile?.following_count || 0
+        })
+      } catch (error) {
+        console.error('Error loading stats:', error)
+      }
+    }
+    loadStats()
+  }, [session])
 
   return (
     <MainLayout>
@@ -1526,20 +1553,16 @@ export default function SettingsPage() {
               <CardContent className="p-4 sm:p-6">
                 <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                   <div className="text-center p-3 sm:p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">234</div>
+                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.posts}</div>
                     <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Posts</div>
                   </div>
                   <div className="text-center p-3 sm:p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">2,847</div>
+                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.followers}</div>
                     <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Followers</div>
                   </div>
                   <div className="text-center p-3 sm:p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">456</div>
+                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.following}</div>
                     <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Following</div>
-                  </div>
-                  <div className="text-center p-3 sm:p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">850</div>
-                    <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Reputation</div>
                   </div>
                 </div>
               </CardContent>

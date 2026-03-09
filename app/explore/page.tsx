@@ -68,16 +68,20 @@ interface Category {
 
 const sustainabilityCategories = [
   "All Categories",
-  "Solar Energy",
-  "Wind Power",
-  "Recycling & Waste Reduction",
-  "Sustainable Transportation",
-  "Green Building",
-  "Climate Action",
-  "Conservation",
-  "Renewable Energy",
-  "Sustainable Agriculture",
-  "Environmental Education",
+  "Technology",
+  "Business",
+  "Health & Wellness",
+  "Education",
+  "Science & Research",
+  "Arts & Culture",
+  "Sports & Fitness",
+  "Travel",
+  "Food & Nutrition",
+  "Personal Finance",
+  "Community & Volunteering",
+  "Lifestyle",
+  "Entertainment",
+  "Environment & Sustainability",
 ]
 
 export default function ExplorePage() {
@@ -361,12 +365,12 @@ export default function ExplorePage() {
               </CardContent>
             </Card>
 
-            {/* Sustainability Categories */}
+            {/* Categories */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-                  Sustainability Categories
+                  Category
                 </CardTitle>
               </CardHeader>
               <CardContent>

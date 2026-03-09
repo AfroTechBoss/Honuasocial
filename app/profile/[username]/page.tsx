@@ -31,7 +31,6 @@ import {
   UserPlus,
   UserMinus,
   CheckCircle,
-  Award,
   Leaf,
   Camera,
   Upload,
@@ -39,8 +38,6 @@ import {
 } from "lucide-react"
 import Image from "next/image"
 import PostCard from "@/components/post-card"
-import ReputationBadge from "@/components/reputation/ReputationBadge"
-import ReputationDashboard from "@/components/reputation/ReputationDashboard"
 import ImageModal from "@/components/image-modal"
 
 // Mock user data
@@ -55,17 +52,11 @@ const mockUser = {
   website: "https://sarahgreen.eco",
   verified: true,
   role: "user",
-  reputation: 850,
   followers_count: 2847,
   following_count: 456,
   posts_count: 234,
   created_at: "2023-03-15T00:00:00Z",
   sustainability_categories: ["Solar Energy", "Climate Action", "Renewable Energy"],
-  achievements: [
-    { name: "Solar Pioneer", description: "Installed first community solar project", icon: "☀️" },
-    { name: "Climate Advocate", description: "100+ climate action posts", icon: "🌍" },
-    { name: "Community Leader", description: "Led 5+ sustainability initiatives", icon: "👥" },
-  ],
 }
 
 const mockUserPosts = [
@@ -126,7 +117,6 @@ export default function ProfilePage() {
   const [uploadingCoverImage, setUploadingCoverImage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [userNotFound, setUserNotFound] = useState(false)
-  const [activeReputationTab, setActiveReputationTab] = useState('overview')
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null)
 
   // Check if this is the current user's profile
@@ -738,17 +728,6 @@ export default function ProfilePage() {
               <span className="sm:hidden">Posts</span>
             </button>
             <button
-              onClick={() => setActiveTab("reputation")}
-              className={`flex-1 px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
-                activeTab === "reputation"
-                  ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-              }`}
-            >
-              <span className="hidden sm:inline">Reputation & Achievements</span>
-              <span className="sm:hidden">Rep</span>
-            </button>
-            <button
               onClick={() => setActiveTab("gallery")}
               className={`flex-1 px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                 activeTab === "gallery"
@@ -781,35 +760,6 @@ export default function ProfilePage() {
                     {isOwnProfile ? "Share your first sustainability post!" : `${user.full_name} hasn't posted anything yet.`}
                   </p>
                 </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === "reputation" && (
-            <div className="space-y-4 sm:space-y-6">
-              <ReputationDashboard userId={user.id} username={user.username} />
-              
-              {/* Legacy Achievements Section */}
-              {user.achievements && user.achievements.length > 0 && (
-                <Card>
-                  <CardContent className="p-4 sm:p-6">
-                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3 sm:mb-4 text-base sm:text-lg">Profile Achievements</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                      {user.achievements.map((achievement: any, index: number) => (
-                        <div
-                          key={index}
-                          className="flex items-center space-x-2 sm:space-x-3 p-3 sm:p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
-                        >
-                          <span className="text-xl sm:text-2xl">{achievement.icon}</span>
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-900 dark:text-gray-100 text-sm sm:text-base">{achievement.name}</p>
-                            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">{achievement.description}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
               )}
             </div>
           )}

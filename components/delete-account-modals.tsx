@@ -35,7 +35,7 @@ export function DeleteAccountModal({ isOpen, onClose, onConfirm }: DeleteAccount
             <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
               <li>Your profile and all personal information</li>
               <li>All your posts, comments, and interactions</li>
-              <li>Your sustainability achievements and impact score</li>
+              <li>Your profile and impact data</li>
               <li>Your followers and following connections</li>
               <li>All saved bookmarks and preferences</li>
             </ul>

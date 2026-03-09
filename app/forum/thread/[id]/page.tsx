@@ -32,7 +32,6 @@ interface Author {
   username: string
   full_name: string
   avatar_url: string
-  reputation: number
   badges?: string[]
 }
 
@@ -128,7 +127,6 @@ export default function ThreadDetailPage() {
             username: threadData.author.username || 'Unknown',
             full_name: threadData.author.full_name || 'Unknown User',
             avatar_url: threadData.author.avatar_url || '/placeholder.svg',
-            reputation: 0, // API doesn't provide this yet
             badges: [] // API doesn't provide this yet
           },
           forum: {
@@ -386,9 +384,6 @@ export default function ThreadDetailPage() {
                     <Link href={`/profile/${thread.author.username}`} className="font-medium hover:text-green-600 truncate max-w-[120px] sm:max-w-none">
                       {thread.author.full_name}
                     </Link>
-                    <Badge variant="outline" className="text-xs flex-shrink-0">
-                      {thread.author.reputation}
-                    </Badge>
                     {thread.author.badges?.slice(0, 1).map((badge) => (
                       <Badge key={badge} variant="secondary" className="text-xs hidden sm:flex">
                         <Award className="w-3 h-3 mr-1" />
@@ -528,9 +523,6 @@ export default function ThreadDetailPage() {
                         >
                           {comment.author.full_name}
                         </Link>
-                        <Badge variant="outline" className="text-xs flex-shrink-0">
-                          {comment.author.reputation}
-                        </Badge>
                         {comment.author.badges?.slice(0, 1).map((badge) => (
                           <Badge key={badge} variant="secondary" className="text-xs hidden sm:flex">
                             <Award className="w-3 h-3 mr-1" />
@@ -636,9 +628,6 @@ export default function ThreadDetailPage() {
                                   >
                                     {reply.author.full_name}
                                   </Link>
-                                  <Badge variant="outline" className="text-xs flex-shrink-0">
-                                    {reply.author.reputation}
-                                  </Badge>
                                 </div>
                                 <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                                   {formatTimeAgo(reply.created_at)}

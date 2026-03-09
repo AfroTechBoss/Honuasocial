@@ -1,6 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { awardPostPoints } from '@/lib/green-points-post'
 
 // POST /api/posts/[id]/like - Like a post
 export async function POST(
@@ -17,10 +18,10 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Check if post exists and get author info
+    // Check if post exists and get author info + green eligibility fields
     const { data: post, error: postError } = await supabase
       .from('posts')
-      .select('id, user_id')
+      .select('id, user_id, sustainability_category, media_urls')
       .eq('id', postId)
       .single()
 
@@ -66,6 +67,18 @@ export async function POST(
       } catch (notificationError) {
         console.error('Error creating like notification:', notificationError)
         // Don't fail the like operation if notification fails
+      }
+      // Award green points to post author for engagement (green posts only)
+      try {
+        await awardPostPoints(supabase, {
+          postId,
+          authorUserId: post.user_id,
+          actionType: 'like',
+          sustainability_category: post.sustainability_category,
+          media_urls: post.media_urls,
+        })
+      } catch (pointsError) {
+        console.error('Green points award error:', pointsError)
       }
     }
 

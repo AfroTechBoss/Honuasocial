@@ -4,12 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import type { User } from '@supabase/auth-helpers-nextjs'
-import { ArrowLeft, Phone, Video, MoreVertical, Send, Paperclip, Smile } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ChatInterface } from '@/components/ChatInterface'
 import MainLayout from '@/components/main-layout'
 import { useToast } from '@/hooks/use-toast'
@@ -36,6 +31,8 @@ interface Message {
   content: string
   created_at: string
   updated_at: string
+  delivered_at?: string | null
+  read_at?: string | null
   reply_to_id?: string
   sender?: {
     id: string
@@ -70,27 +67,68 @@ export default function ConversationPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
-  const [messageInput, setMessageInput] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Fetch conversation details
   const fetchConversation = async () => {
     try {
-      const response = await fetch(`/api/conversations/${conversationId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setConversation(data)
-      } else {
+      const { data: conv, error } = await supabase
+        .from('conversations')
+        .select('id, participant_one_id, participant_two_id, created_at, updated_at')
+        .eq('id', conversationId)
+        .single()
+      
+      if (error || !conv) {
+        console.error('Error fetching conversation:', {
+          message: (error as any)?.message,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          code: (error as any)?.code
+        })
         toast({
           title: "Error",
           description: "Conversation not found",
           variant: "destructive"
         })
-        router.push('/messages')
+        return
       }
+      
+      if (conv.participant_one_id !== user?.id && conv.participant_two_id !== user?.id) {
+        toast({
+          title: "Error",
+          description: "You don't have access to this conversation",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      const otherId = conv.participant_one_id === user?.id ? conv.participant_two_id : conv.participant_one_id
+      let otherProfile: any | undefined
+      if (otherId) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, is_online')
+          .eq('id', otherId)
+          .single()
+        otherProfile = profile || undefined
+      }
+      
+      setConversation({
+        id: conv.id,
+        participant_one_id: conv.participant_one_id,
+        participant_two_id: conv.participant_two_id,
+        created_at: conv.created_at,
+        updated_at: conv.updated_at,
+        otherParticipant: otherProfile ? {
+          id: otherProfile.id,
+          username: otherProfile.username,
+          full_name: otherProfile.full_name,
+          avatar_url: otherProfile.avatar_url,
+          is_online: !!otherProfile.is_online
+        } : undefined
+      })
     } catch (error) {
       console.error('Error fetching conversation:', error)
       toast({
@@ -98,71 +136,62 @@ export default function ConversationPage() {
         description: "Failed to load conversation",
         variant: "destructive"
       })
-      router.push('/messages')
     }
   }
 
   // Fetch messages for the conversation
   const fetchMessages = async () => {
     try {
-      const response = await fetch(`/api/messages?conversation_id=${conversationId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setMessages(data)
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          sender:profiles!messages_sender_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          ),
+          reply_to_message:messages!messages_reply_to_fkey (
+            id,
+            content,
+            sender:profiles!messages_sender_id_fkey (*)
+          )
+        `)
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+      
+      if (error) {
+        console.error('Error fetching messages:', {
+          message: (error as any)?.message,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          code: (error as any)?.code
+        })
+      } else {
+        const transformed = (data || []).map((m: any) => ({
+          ...m,
+          reply_to: m.reply_to_message ? {
+            id: m.reply_to_message.id,
+            content: m.reply_to_message.content,
+            sender: {
+              full_name: m.reply_to_message.sender?.full_name
+            }
+          } : undefined
+        }))
+        setMessages(transformed)
       }
+      // Mark as read when we load the conversation
+      fetch('/api/messages/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversationId }),
+      }).catch(() => {})
     } catch (error) {
       console.error('Error fetching messages:', error)
     } finally {
       setLoading(false)
     }
-  }
-
-  // Send message
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !conversation || sendingMessage) return
-
-    setSendingMessage(true)
-    try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          conversation_id: conversation.id,
-          content: messageInput.trim(),
-          replyToId: replyingTo?.id
-        }),
-      })
-
-      if (response.ok) {
-        setMessageInput('')
-        setReplyingTo(null)
-        // Refresh messages to show the new message
-        await fetchMessages()
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to send message",
-          variant: "destructive"
-        })
-      }
-    } catch (error) {
-      console.error('Error sending message:', error)
-      toast({
-        title: "Error",
-        description: "Failed to send message",
-        variant: "destructive"
-      })
-    } finally {
-      setSendingMessage(false)
-    }
-  }
-
-  // Handle emoji selection
-  const handleEmojiSelect = (emoji: string) => {
-    setMessageInput(prev => prev + emoji)
-    textareaRef.current?.focus()
   }
 
   // Initialize authentication
@@ -191,12 +220,12 @@ export default function ConversationPage() {
     fetchMessages()
   }, [user, conversationId])
 
-  // Set up real-time subscriptions
+  // Set up real-time subscriptions (INSERT + UPDATE for ticks)
   useEffect(() => {
     if (!user?.id || !conversationId) return
 
-    const messageChannel = supabase
-      .channel('messages')
+    const ch = supabase
+      .channel(`realtime:conv:${conversationId}`)
       .on(
         'postgres_changes',
         {
@@ -205,39 +234,65 @@ export default function ConversationPage() {
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload) => {
-          // Fetch complete message with sender profile
-          const { data: messageWithSender } = await supabase
+        async (payload: { new: Record<string, unknown> }) => {
+          const id = payload.new?.id as string
+          if (!id) return
+          const { data: msg } = await supabase
             .from('messages')
             .select(`
               *,
-              sender:profiles!messages_sender_id_fkey(*),
-              reply_to_message:messages!messages_reply_to_fkey(
-                id,
-                content,
-                sender:profiles!messages_sender_id_fkey(*)
-              )
+              sender:profiles!messages_sender_id_fkey(id,username,full_name,avatar_url),
+              reply_to_message:messages!messages_reply_to_fkey(id,content,sender:profiles!messages_sender_id_fkey(*))
             `)
-            .eq('id', payload.new.id)
+            .eq('id', id)
             .single()
-
-          if (messageWithSender) {
+          if (msg) {
+            const withReply = {
+              ...msg,
+              reply_to: (msg as any).reply_to_message
+                ? {
+                    id: (msg as any).reply_to_message.id,
+                    content: (msg as any).reply_to_message.content,
+                    sender: {
+                      full_name: (msg as any).reply_to_message.sender?.full_name,
+                    },
+                  }
+                : undefined,
+            }
             setMessages(prev => {
-              // Prevent duplicates
-              if (prev.some(msg => msg.id === messageWithSender.id)) {
-                return prev
-              }
-              return [...prev, messageWithSender]
+              if (prev.some(m => m.id === (msg as Message).id)) return prev
+              return [...prev, withReply as Message]
             })
+            if ((msg as Message).sender_id !== user?.id) {
+              fetch('/api/messages/mark-delivered', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id: (msg as Message).id }),
+              }).catch(() => {})
+            }
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: { new: Record<string, unknown> }) => {
+          const updated = payload.new as Partial<Message>
+          if (!updated?.id) return
+          setMessages(prev =>
+            prev.map(m => (m.id === updated.id ? { ...m, ...updated } : m))
+          )
         }
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(messageChannel)
-    }
-  }, [user, conversationId])
+    return () => { supabase.removeChannel(ch) }
+  }, [user?.id, conversationId])
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -299,173 +354,75 @@ export default function ConversationPage() {
     )
   }
 
+  const handleSendMessageWithReply = (content: string, replyToId?: string) => {
+    if (!conversation || sendingMessage) return
+    setSendingMessage(true)
+    const trimmed = content.trim()
+    if (!trimmed) { setSendingMessage(false); return }
+    supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversation.id,
+        sender_id: user?.id,
+        content: trimmed,
+        reply_to_id: replyToId || replyingTo?.id || null,
+      })
+      .select(`
+        *,
+        sender:profiles!messages_sender_id_fkey(id,username,full_name,avatar_url),
+        reply_to_message:messages!messages_reply_to_fkey(id,content,sender:profiles!messages_sender_id_fkey(*))
+      `)
+      .single()
+      .then(({ data: message, error }) => {
+        setSendingMessage(false)
+        if (error) {
+          toast({
+            title: "Error",
+            description: "Failed to send message",
+            variant: "destructive",
+          })
+          return
+        }
+        if (message) {
+          const withReply = {
+            ...message,
+            reply_to: (message as any).reply_to_message
+              ? {
+                  id: (message as any).reply_to_message.id,
+                  content: (message as any).reply_to_message.content,
+                  sender: {
+                    full_name: (message as any).reply_to_message.sender?.full_name,
+                  },
+                }
+              : undefined,
+          }
+          setMessages(prev => [...prev, withReply as Message])
+          setReplyingTo(null)
+        }
+      })
+    supabase
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversation.id)
+      .then(() => {})
+  }
+
   return (
     <MainLayout>
-      <div className="flex flex-col h-full">
-        {/* Mobile Header */}
-        <div className="lg:hidden flex items-center p-4 border-b border-gray-200 bg-white">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/messages')}
-            className="mr-3"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex items-center space-x-3 flex-1">
-            <Avatar className="h-10 w-10">
-              <AvatarImage src={conversation.otherParticipant?.avatar_url} />
-              <AvatarFallback>
-                {conversation.otherParticipant?.full_name?.charAt(0) || 'U'}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1">
-              <h2 className="font-semibold text-gray-900">
-                {conversation.otherParticipant?.full_name || 'Unknown User'}
-              </h2>
-              <p className="text-sm text-gray-500">
-                {conversation.otherParticipant?.is_online ? 'Online' : 'Offline'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm">
-              <Phone className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="sm">
-              <Video className="h-5 w-5" />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreVertical className="h-5 w-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem className="text-red-600">
-                  Block User
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-600">
-                  Report User
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-600">
-                  Delete Conversation
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-
-        {/* Desktop/Mobile Chat Interface */}
-        <div className="flex-1 hidden lg:block">
+      <div className="flex flex-col h-[calc(100vh-3.5rem)] lg:h-full min-h-0">
+        <div className="flex-1 flex min-h-0">
           <ChatInterface
             conversation={conversation}
             messages={messages}
             loading={false}
             currentUserId={user.id}
-            onSendMessage={handleSendMessage}
+            onSendMessage={handleSendMessageWithReply}
             onDeleteMessage={() => {}}
             onDeleteConversation={() => {}}
-            showMobileView={false}
+            showMobileView={true}
             replyingTo={replyingTo}
             onCancelReply={() => setReplyingTo(null)}
           />
-        </div>
-
-        {/* Mobile Chat Interface */}
-        <div className="flex-1 lg:hidden flex flex-col">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-            {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-gray-500">
-                  <p>No messages yet</p>
-                  <p className="text-sm">Start the conversation!</p>
-                </div>
-              </div>
-            ) : (
-              messages.map((message) => {
-                const isOwn = message.sender_id === user?.id
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-xs relative`}>
-                      {/* Reply reference */}
-                      {message.reply_to && (
-                        <div className="mb-1 p-2 bg-gray-100 rounded-lg border-l-4 border-blue-500 text-sm">
-                          <p className="font-medium text-gray-700">
-                            {message.reply_to.sender?.full_name || 'Unknown'}
-                          </p>
-                          <p className="text-gray-600 truncate">
-                            {message.reply_to.content}
-                          </p>
-                        </div>
-                      )}
-                      
-                      <div
-                        className={`px-4 py-2 rounded-lg ${
-                          isOwn
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-gray-900 border border-gray-200'
-                        }`}
-                      >
-                        <p className="break-words">{message.content}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <span
-                            className={`text-xs ${
-                              isOwn ? 'text-blue-100' : 'text-gray-500'
-                            }`}
-                          >
-                            {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Message Input */}
-          <div className="p-4 bg-white border-t border-gray-200">
-            <div className="flex items-end space-x-2">
-              <Button variant="ghost" size="sm" className="mb-2">
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              <div className="flex-1 relative">
-                <Textarea
-                  ref={textareaRef}
-                  placeholder="Type a message..."
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  className="min-h-[40px] max-h-32 resize-none pr-10"
-                  rows={1}
-                />
-                <div className="absolute right-2 bottom-2">
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                    <Smile className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <Button
-                onClick={handleSendMessage}
-                disabled={!messageInput.trim() || sendingMessage}
-                className="mb-2"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
         </div>
       </div>
     </MainLayout>

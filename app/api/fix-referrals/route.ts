@@ -63,28 +63,7 @@ const trackReferral = async (newUserId: string, referralCode: string) => {
         return { success: false, error: referralError.message }
       }
       
-      // Award points to inviter using the reputation system
-      try {
-        const { error: pointsError } = await supabase.rpc('add_reputation_points', {
-          user_id: inviterId,
-          points: 10,
-          action_type: 'peer_recognition',
-          reference_id: newUserId,
-          reference_type: 'referral',
-          description: `Invited new user: ${referralCode}`
-        })
-        
-        if (pointsError) {
-          console.error('Error awarding referral points:', pointsError)
-          return { success: true, message: 'Referral created but points not awarded', pointsError: pointsError.message }
-        } else {
-          console.log(`Awarded 10 referral points to user ${inviterId} for inviting ${newUserId}`)
-          return { success: true, message: 'Referral tracked successfully' }
-        }
-      } catch (pointsError) {
-        console.error('Error calling add_reputation_points:', pointsError)
-        return { success: true, message: 'Referral created but points RPC failed', pointsError }
-      }
+      return { success: true, message: 'Referral tracked successfully' }
     } else {
       return { success: false, error: 'Inviter not found' }
     }

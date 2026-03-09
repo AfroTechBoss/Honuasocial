@@ -15,19 +15,8 @@ import { ImageIcon, MapPin, Smile, Globe, Users, Lock, X, ExternalLink } from "l
 import Image from "next/image"
 import EmojiPicker from "@/components/emoji-picker"
 import { uploadPostMedia, type UploadResult } from "@/lib/storage"
+import { GENERAL_CATEGORIES } from "@/lib/categories"
 
-const sustainabilityCategories = [
-  "Solar Energy",
-  "Wind Power",
-  "Recycling & Waste Reduction",
-  "Sustainable Transportation",
-  "Green Building",
-  "Climate Action",
-  "Conservation",
-  "Renewable Energy",
-  "Sustainable Agriculture",
-  "Environmental Education",
-]
 
 interface CreatePostModalProps {
   open: boolean
@@ -253,7 +242,7 @@ export default function CreatePostModal({ open, onOpenChange, onPostCreated, var
           content: content.trim(),
           media_urls: selectedImages,
           location: location || null,
-          sustainability_category: selectedCategory || null,
+                  sustainability_category: selectedCategory || null,
           impact_score: null, // You can calculate this based on category or content
           link_preview: linkPreview
         }),
@@ -523,16 +512,16 @@ export default function CreatePostModal({ open, onOpenChange, onPostCreated, var
           )}
           <div className="grid grid-cols-1 gap-3 sm:gap-4">
             <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {sustainabilityCategories.map((category) => (
-                  <SelectItem key={category} value={category}>
-                    {category}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GENERAL_CATEGORIES.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
             </Select>
           </div>
           {showLocationInput && (

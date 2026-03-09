@@ -121,9 +121,9 @@ export default function ConversationList({
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
-      {/* Header */}
-      <div className="p-4 border-b border-border">
+    <div className="h-full flex flex-col bg-background min-h-0">
+      {/* Header - safe area on mobile */}
+      <div className="p-4 pb-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3 mb-4">
           {showMobileView && (
             <Button
@@ -150,8 +150,8 @@ export default function ConversationList({
         </div>
       </div>
 
-      {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Conversations List - scrollable */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         {filteredConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <MessageCircle className="w-16 h-16 mb-4 text-muted-foreground/50" />

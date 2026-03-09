@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "@supabase/auth-helpers-react"
 import { Button } from "@/components/ui/button"
@@ -31,11 +31,13 @@ import {
   FolderPlus,
   Plus,
   FolderOpen,
+  Leaf,
 } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import ImageModal from "./image-modal"; // Adjust path if necessary
 import { renderContentWithLinksAndMentions } from '@/lib/mention-utils'
+import { isGreenEligibleCategory } from '@/lib/categories'
 
 interface PostCardProps {
   post: {
@@ -82,6 +84,26 @@ export default function PostCard({ post, onPostDeleted, onUpdate }: PostCardProp
   const { toast } = useToast()
   const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
   const [isMoveBookmarkOpen, setIsMoveBookmarkOpen] = useState(false);
+  const [postPointsEarned, setPostPointsEarned] = useState<number | null>(null);
+
+  const isAuthor = session?.user?.id === post.user?.id
+  const isGreenPost = isGreenEligibleCategory(post.sustainability_category)
+
+  useEffect(() => {
+    if (!isAuthor || !isGreenPost || !post.id) return
+    const fetchPoints = async () => {
+      try {
+        const res = await fetch(`/api/posts/${post.id}/points`)
+        if (res.ok) {
+          const data = await res.json()
+          setPostPointsEarned(typeof data.points === 'number' ? data.points : 0)
+        }
+      } catch {
+        setPostPointsEarned(0)
+      }
+    }
+    fetchPoints()
+  }, [post.id, isAuthor, isGreenPost, likesCount, post.comments_count, post.reposts_count])
 
   const handleLike = async () => {
     const newIsLiked = !isLiked
@@ -631,6 +653,16 @@ export default function PostCard({ post, onPostDeleted, onUpdate }: PostCardProp
                   </Button>
                 </div>
               </div>
+
+              {/* Green points earned (author only, from DB so it matches Points page) */}
+              {isAuthor && isGreenPost && (
+                <div className="pt-2 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <Leaf className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    This post has earned you <strong>{postPointsEarned !== null ? postPointsEarned : '…'}</strong> green point{postPointsEarned === 1 ? '' : 's'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>

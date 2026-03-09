@@ -19,10 +19,13 @@ import {
   ArrowLeft,
   Phone,
   Video,
-  Info
+  Info,
+  Check,
+  CheckCheck
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import EmojiPicker from "@/components/emoji-picker"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
 interface Message {
   id: string
@@ -31,6 +34,8 @@ interface Message {
   content: string
   created_at: string
   updated_at: string
+  delivered_at?: string | null
+  read_at?: string | null
   reply_to_id?: string
   sender?: {
     id: string
@@ -93,6 +98,11 @@ export function ChatInterface({
   const [showDeleteConversation, setShowDeleteConversation] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
+  const supabase = createClientComponentClient()
+  const [isOtherTyping, setIsOtherTyping] = useState(false)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const [previews, setPreviews] = useState<Record<string, { image?: string; title?: string; description?: string; url: string; domain?: string }>>({})
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -107,6 +117,13 @@ export function ChatInterface({
       onSendMessage(messageInput.trim(), replyingTo?.id)
       setMessageInput("")
       onCancelReply?.()
+      if (conversation?.id && typingChannelRef.current) {
+        typingChannelRef.current.send({
+          type: 'broadcast',
+          event: 'stop_typing',
+          payload: { senderId: currentUserId }
+        })
+      }
     }
   }
 
@@ -133,6 +150,64 @@ export function ChatInterface({
       return "Just now"
     }
   }
+
+  const extractUrls = (text: string): string[] => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    const matches = text.match(urlRegex)
+    return matches || []
+  }
+
+  useEffect(() => {
+    messages.forEach((m) => {
+      const urls = extractUrls(m.content)
+      const firstUrl = urls[0]
+      if (firstUrl && !previews[m.id]) {
+        const fetchPreview = async () => {
+          try {
+            const res = await fetch(`/api/link-preview?url=${encodeURIComponent(firstUrl)}`)
+            if (res.ok) {
+              const preview = await res.json()
+              setPreviews(prev => ({ ...prev, [m.id]: preview }))
+            }
+          } catch {}
+        }
+        fetchPreview()
+      }
+    })
+  }, [messages])
+
+  useEffect(() => {
+    if (!conversation?.id) return
+    if (typingChannelRef.current) {
+      supabase.removeChannel(typingChannelRef.current)
+      typingChannelRef.current = null
+    }
+    const channel = supabase.channel(`typing:${conversation.id}`, { config: { broadcast: { self: true } } })
+      .on('broadcast', { event: 'typing' }, (payload: any) => {
+        if (payload?.payload?.senderId !== currentUserId) {
+          setIsOtherTyping(true)
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = setTimeout(() => setIsOtherTyping(false), 1500)
+        }
+      })
+      .on('broadcast', { event: 'stop_typing' }, (payload: any) => {
+        if (payload?.payload?.senderId !== currentUserId) {
+          setIsOtherTyping(false)
+        }
+      })
+      .subscribe()
+    typingChannelRef.current = channel
+    return () => {
+      if (typingChannelRef.current) {
+        supabase.removeChannel(typingChannelRef.current)
+        typingChannelRef.current = null
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = null
+      }
+    }
+  }, [conversation?.id, currentUserId])
 
   if (!conversation) {
     return (
@@ -224,6 +299,13 @@ export function ChatInterface({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4">
+        {isOtherTyping && (
+          <div className="flex justify-start">
+            <div className="px-3 py-2 rounded-full bg-green-100 text-green-800 text-xs shadow-sm">
+              Typing...
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="space-y-4">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -279,11 +361,27 @@ export function ChatInterface({
                       }`}
                     >
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      {previews[message.id]?.image && (
+                        <div className="mt-2 rounded overflow-hidden">
+                          <img src={previews[message.id].image} alt={previews[message.id].title || 'Link preview'} className="max-w-xs rounded" />
+                        </div>
+                      )}
                     </div>
                     <div className={`flex items-center gap-2 mt-1 ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                       <span className="text-xs text-muted-foreground">
                         {formatMessageTime(message.created_at)}
                       </span>
+                      {isOwnMessage && (
+                        <span className="inline-flex items-center" title={message.read_at ? "Read" : message.delivered_at ? "Delivered" : "Sent"}>
+                          {message.read_at ? (
+                            <CheckCheck className="w-3.5 h-3.5 text-primary-foreground/90 text-blue-300" aria-label="Read" />
+                          ) : message.delivered_at ? (
+                            <CheckCheck className="w-3.5 h-3.5 text-primary-foreground/70" aria-label="Delivered" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5 text-primary-foreground/70" aria-label="Sent" />
+                          )}
+                        </span>
+                      )}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -373,8 +471,26 @@ export function ChatInterface({
             <Input
               placeholder="Type a message..."
               value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
+              onChange={(e) => {
+                setMessageInput(e.target.value)
+                if (conversation?.id && typingChannelRef.current) {
+                  typingChannelRef.current.send({
+                    type: 'broadcast',
+                    event: 'typing',
+                    payload: { senderId: currentUserId }
+                  })
+                }
+              }}
               onKeyPress={handleKeyPress}
+              onBlur={() => {
+                if (conversation?.id && typingChannelRef.current) {
+                  typingChannelRef.current.send({
+                    type: 'broadcast',
+                    event: 'stop_typing',
+                    payload: { senderId: currentUserId }
+                  })
+                }
+              }}
               className="resize-none"
             />
           </div>

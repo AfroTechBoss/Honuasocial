@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile with reputation
+    // Get user profile with green points
     const { data: user, error: userError } = await supabase
       .from('profiles')
-      .select('id, username, full_name, reputation')
+      .select('id, username, full_name, green_points')
       .eq('id', userId)
       .single()
 
@@ -30,13 +30,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get total points from reputation_actions
-    const { data: pointsData, error: pointsError } = await supabase
-      .from('reputation_actions')
-      .select('points')
-      .eq('user_id', userId)
-
-    const totalPoints = pointsData?.reduce((sum, action) => sum + (action.points || 0), 0) || 0
+    const totalPoints = user.green_points ?? 0
 
     // Get completed tasks count
     const { data: completedTasks, error: tasksError } = await supabase
@@ -55,11 +49,11 @@ export async function GET(request: NextRequest) {
 
     const invitesCount = invites?.length || 0
 
-    // Calculate user rank based on total points
-    const { data: allUsers, error: rankError } = await supabase
+    // Calculate user rank and leaderboard from green_points
+    const { data: allUsers } = await supabase
       .from('profiles')
-      .select('id, reputation')
-      .order('reputation', { ascending: false })
+      .select('id, green_points')
+      .order('green_points', { ascending: false })
 
     let userRank = 1
     if (allUsers) {
@@ -67,30 +61,22 @@ export async function GET(request: NextRequest) {
       userRank = userIndex >= 0 ? userIndex + 1 : allUsers.length + 1
     }
 
-    // Get leaderboard data for points
-    const { data: pointsLeaderboard, error: pointsLeaderboardError } = await supabase
+    const { data: pointsLeaderboard } = await supabase
       .from('profiles')
-      .select(`
-        id,
-        username,
-        full_name,
-        avatar_url,
-        reputation
-      `)
-      .order('reputation', { ascending: false })
+      .select('id, username, full_name, avatar_url, green_points')
+      .order('green_points', { ascending: false })
       .limit(10)
 
-    // Transform leaderboard data
-    const transformedPointsLeaderboard = pointsLeaderboard?.map((user, index) => ({
+    const transformedPointsLeaderboard = pointsLeaderboard?.map((u, index) => ({
       rank: index + 1,
       user: {
-        id: user.id,
-        username: user.username,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url
+        id: u.id,
+        username: u.username,
+        full_name: u.full_name,
+        avatar_url: u.avatar_url
       },
-      points: user.reputation || 0,
-      tasks_completed: 0 // We'll need to calculate this separately if needed
+      points: u.green_points ?? 0,
+      tasks_completed: 0
     })) || []
 
     // Get invites leaderboard

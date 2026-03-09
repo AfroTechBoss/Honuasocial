@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { awardPostPoints } from '@/lib/green-points-post'
 
 // GET /api/posts - Fetch posts for home feed
 export async function GET(request: NextRequest) {
@@ -191,6 +192,19 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error creating post:', error)
       return NextResponse.json({ error: 'Failed to create post' }, { status: 500 })
+    }
+
+    // Award green points if post is in an eco-friendly category (no AI; category-based)
+    try {
+      await awardPostPoints(supabase, {
+        postId: post.id,
+        authorUserId: user.id,
+        actionType: 'create',
+        sustainability_category: sustainability_category || null,
+        media_urls: media_urls || null,
+      })
+    } catch (pointsError) {
+      console.error('Green points award error:', pointsError)
     }
 
     // Handle mentions in the post content

@@ -106,8 +106,7 @@ export async function GET(
             username: (comment.profiles as any)?.username || 'Unknown',
             full_name: (comment.profiles as any)?.full_name || 'Unknown User',
             avatar_url: (comment.profiles as any)?.avatar_url || '/placeholder.svg',
-            reputation: 0, // Would need separate reputation system
-            badges: [] // Would need separate badge system
+            badges: []
           },
           likes_count: 0, // Will be implemented with proper vote system
           dislikes_count: 0, // Will be implemented with proper vote system
@@ -119,8 +118,7 @@ export async function GET(
             author: {
               username: (reply.profiles as any)?.username || 'Unknown',
               full_name: (reply.profiles as any)?.full_name || 'Unknown User',
-              avatar_url: (reply.profiles as any)?.avatar_url || '/placeholder.svg',
-              reputation: 0
+              avatar_url: (reply.profiles as any)?.avatar_url || '/placeholder.svg'
             },
             likes_count: 0, // Will be implemented with proper vote system
             created_at: reply.created_at,
@@ -274,7 +272,6 @@ export async function POST(
         username: (comment.profiles as any)?.username || 'Unknown',
         full_name: (comment.profiles as any)?.full_name || 'Unknown User',
         avatar_url: (comment.profiles as any)?.avatar_url || '/placeholder.svg',
-        reputation: 0,
         badges: []
       },
       likes_count: 0, // Will be implemented with proper vote system

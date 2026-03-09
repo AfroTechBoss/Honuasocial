@@ -12,19 +12,8 @@ import { useToast } from "@/hooks/use-toast"
 import { ImageIcon, MapPin, Smile, Calendar, Globe, Users, Lock, X } from "lucide-react"
 import Image from "next/image"
 import { uploadPostMedia, type UploadResult } from "@/lib/storage"
+import { GENERAL_CATEGORIES } from "@/lib/categories"
 
-const sustainabilityCategories = [
-  "Solar Energy",
-  "Wind Power",
-  "Recycling & Waste Reduction",
-  "Sustainable Transportation",
-  "Green Building",
-  "Climate Action",
-  "Conservation",
-  "Renewable Energy",
-  "Sustainable Agriculture",
-  "Environmental Education",
-]
 
 export default function CreatePostCard() {
   const [content, setContent] = useState("")
@@ -241,16 +230,16 @@ export default function CreatePostCard() {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sustainabilityCategories.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GENERAL_CATEGORIES.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                   </Select>
 
                   <div className="relative">

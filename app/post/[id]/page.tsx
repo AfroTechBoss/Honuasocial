@@ -24,10 +24,12 @@ import {
   MapPin,
   TrendingUp,
   CheckCircle,
+  Leaf,
 } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import ImageModal from "@/components/image-modal"
+import { isGreenEligibleCategory } from "@/lib/categories"
 
 // TypeScript interfaces
 interface User {
@@ -84,6 +86,26 @@ export default function PostDetailPage() {
   const [loading, setLoading] = useState(true)
   const [collapsedReplies, setCollapsedReplies] = useState<Set<string>>(new Set())
   const [profile, setProfile] = useState<any>(null)
+  const [postPointsEarned, setPostPointsEarned] = useState<number | null>(null)
+
+  const isAuthor = session?.user?.id === post?.user?.id
+  const isGreenPost = post ? isGreenEligibleCategory(post.sustainability_category) : false
+
+  useEffect(() => {
+    if (!post?.id || !isAuthor || !isGreenPost) return
+    const fetchPoints = async () => {
+      try {
+        const res = await fetch(`/api/posts/${post.id}/points`)
+        if (res.ok) {
+          const data = await res.json()
+          setPostPointsEarned(typeof data.points === 'number' ? data.points : 0)
+        }
+      } catch {
+        setPostPointsEarned(0)
+      }
+    }
+    fetchPoints()
+  }, [post?.id, isAuthor, isGreenPost, likesCount, comments.length, post?.reposts_count])
 
   // Fetch current user profile
   useEffect(() => {
@@ -501,6 +523,15 @@ export default function PostDetailPage() {
                     </Button>
                   </div>
                 </div>
+
+                {isAuthor && isGreenPost && (
+                  <div className="pt-3 flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+                    <Leaf className="w-4 h-4 flex-shrink-0" />
+                    <span>
+                      This post has earned you <strong>{postPointsEarned !== null ? postPointsEarned : '…'}</strong> green point{postPointsEarned === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>

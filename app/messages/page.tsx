@@ -39,6 +39,8 @@ interface Message {
   content: string
   created_at: string
   updated_at: string
+  delivered_at?: string | null
+  read_at?: string | null
   reply_to?: {
     id: string
     content: string
@@ -277,11 +279,18 @@ function MessagesPageContent() {
     setSelectedConversation(conversation)
     setMessages([])
     fetchMessages(conversation.id)
+    // Mark messages as read when opening conversation
+    fetch('/api/messages/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: conversation.id }),
+    }).catch(() => {})
   }
 
   // Send message
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !selectedConversation || sendingMessage) return
+  const handleSendMessage = async (content?: string, replyToId?: string) => {
+    const finalContent = (content ?? messageInput).trim()
+    if (!finalContent || !selectedConversation || sendingMessage) return
 
     setSendingMessage(true)
     try {
@@ -292,12 +301,19 @@ function MessagesPageContent() {
         },
         body: JSON.stringify({
           conversation_id: selectedConversation.id,
-          content: messageInput.trim(),
-          reply_to_id: replyingTo
+          content: finalContent,
+          reply_to_id: replyToId || replyingTo?.id
         }),
       })
 
       if (response.ok) {
+        const newMessage = await response.json()
+        setMessages(prev => [...prev, newMessage])
+        setConversations(prev => prev.map(conv => 
+          conv.id === selectedConversation.id 
+            ? { ...conv, latestMessage: { content: newMessage.content, created_at: newMessage.created_at, sender_id: newMessage.sender_id }, updated_at: newMessage.created_at }
+            : conv
+        ))
         setMessageInput('')
         setReplyingTo(null)
         toast({
@@ -408,139 +424,111 @@ function MessagesPageContent() {
     }
   }, [user, authLoading])
 
-  // Set up real-time subscriptions
+  // Realtime: conversation list updates
   useEffect(() => {
     if (!user?.id) return
-
-    const conversationChannel = supabase
-      .channel('conversations')
+    const ch = supabase
+      .channel('realtime:conversations')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'conversations',
-          filter: `or(participant_one_id.eq.${user?.id},participant_two_id.eq.${user?.id})`,
+          filter: `or(participant_one_id.eq.${user.id},participant_two_id.eq.${user.id})`,
         },
-        () => {
-          scheduleFetchConversations()
-        }
+        () => scheduleFetchConversations()
       )
       .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [user?.id])
 
-    const messageChannel = supabase
-      .channel('messages')
+  // When conversation is selected: fetch messages, mark read, subscribe to messages (INSERT + UPDATE)
+  useEffect(() => {
+    if (!user?.id || !selectedConversation?.id) return
+
+    fetchMessages(selectedConversation.id)
+    fetch('/api/messages/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: selectedConversation.id }),
+    }).catch(() => {})
+
+    const channelName = `realtime:messages:${selectedConversation.id}`
+    const ch = supabase
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
+          filter: `conversation_id=eq.${selectedConversation.id}`,
         },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           scheduleFetchConversations()
-         
-          // If message is for selected conversation, add it to messages
-          if (selectedConversation && payload.new.conversation_id === selectedConversation.id) {
-            // Fetch complete message with sender profile
-            const { data: messageWithSender } = await supabase
-              .from('messages')
-              .select(`
-                *,
-                sender:profiles!messages_sender_id_fkey(*),
-                reply_to_message:messages!messages_reply_to_fkey(
-                  id,
-                  content,
-                  sender:profiles!messages_sender_id_fkey(*)
-                )
-              `)
-              .eq('id', payload.new.id)
-              .single()
-
-            if (messageWithSender) {
-              setMessages(prev => {
-                // Prevent duplicates
-                if (prev.some(msg => msg.id === messageWithSender.id)) {
-                  return prev
-                }
-                return [...prev, messageWithSender]
-              })
+          const id = payload.new?.id as string
+          if (!id) return
+          const { data: newMessage } = await supabase
+            .from('messages')
+            .select(`
+              *,
+              sender:profiles!messages_sender_id_fkey(id,username,full_name,avatar_url),
+              reply_to_message:messages!messages_reply_to_fkey(id,content,sender:profiles!messages_sender_id_fkey(*))
+            `)
+            .eq('id', id)
+            .single()
+          if (newMessage) {
+            setMessages(prev => {
+              if (prev.some(m => m.id === newMessage.id)) return prev
+              return [...prev, newMessage as Message]
+            })
+            // Recipient: mark as delivered so sender sees two grey ticks
+            if ((newMessage as Message).sender_id !== user?.id) {
+              fetch('/api/messages/mark-delivered', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id: (newMessage as Message).id }),
+              }).catch(() => {})
             }
+            setConversations(prev =>
+              prev.map(conv =>
+                conv.id === selectedConversation.id
+                  ? {
+                      ...conv,
+                      latestMessage: {
+                        content: (newMessage as Message).content,
+                        created_at: (newMessage as Message).created_at,
+                        sender_id: (newMessage as Message).sender_id,
+                      },
+                      updated_at: (newMessage as Message).created_at,
+                    }
+                  : conv
+              )
+            )
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${selectedConversation.id}`,
+        },
+        (payload: { new: Record<string, unknown> }) => {
+          const updated = payload.new as Partial<Message>
+          if (!updated?.id) return
+          setMessages(prev =>
+            prev.map(m => (m.id === updated.id ? { ...m, ...updated } : m))
+          )
         }
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(conversationChannel)
-      supabase.removeChannel(messageChannel)
-    }
-  }, [user, selectedConversation])
-
-  // Load messages when conversation changes and set up real-time subscription
-  useEffect(() => {
-    if (selectedConversation?.id) {
-      fetchMessages(selectedConversation.id)
-      
-      // Set up real-time subscription for new messages
-      const channel = supabase
-        .channel(`messages:${selectedConversation.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${selectedConversation.id}`
-          },
-          async (payload) => {
-            // Fetch the complete message with sender profile
-            const { data: newMessage, error } = await supabase
-              .from('messages')
-              .select(`
-                *,
-                sender:profiles!messages_sender_id_fkey (
-                  id,
-                  username,
-                  full_name,
-                  avatar_url
-                )
-              `)
-              .eq('id', payload.new.id)
-              .single()
-            
-            if (!error && newMessage) {
-              // Add is_own property to determine message alignment
-              const messageWithOwnership = {
-                ...newMessage,
-                is_own: newMessage.sender_id === user?.id
-              }
-              
-              setMessages(prev => {
-                // Avoid duplicates
-                if (prev.some(msg => msg.id === messageWithOwnership.id)) {
-                  return prev
-                }
-                return [...prev, messageWithOwnership]
-              })
-              
-              // Update conversation's latest message
-              setConversations(prev => prev.map(conv => 
-                conv.id === selectedConversation.id 
-                  ? { ...conv, latestMessage: messageWithOwnership, updated_at: messageWithOwnership.created_at }
-                  : conv
-              ))
-            }
-          }
-        )
-        .subscribe()
-      
-      // Cleanup subscription on unmount or conversation change
-      return () => {
-        supabase.removeChannel(channel)
-      }
-    }
-  }, [selectedConversation, user])
+    return () => { supabase.removeChannel(ch) }
+  }, [user?.id, selectedConversation?.id])
 
   // Handle user parameter from URL to start a conversation
   useEffect(() => {
@@ -594,9 +582,9 @@ function MessagesPageContent() {
 
   return (
     <MainLayout>
-      <div className="h-full">
-        {/* Mobile View - Show only conversation list */}
-        <div className="lg:hidden h-full">
+      <div className="h-[calc(100vh-3.5rem)] lg:h-full min-h-0 flex flex-col">
+        {/* Mobile: conversation list only; tap conversation -> /messages/[id] */}
+        <div className="lg:hidden flex-1 flex flex-col min-h-0">
           <ConversationList
             conversations={conversations}
             loading={loading}
@@ -604,8 +592,8 @@ function MessagesPageContent() {
           />
         </div>
 
-        {/* Desktop View - Split pane layout */}
-        <div className="hidden lg:flex h-full">
+        {/* Desktop: split pane */}
+        <div className="hidden lg:flex flex-1 min-h-0">
           {/* Left Pane - Conversation List */}
           <div className="w-1/3 border-r border-border">
             <ConversationList

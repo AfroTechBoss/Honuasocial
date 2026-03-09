@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { conversation_id, content, media_url } = body
+    const { conversation_id, content, media_url, reply_to_id } = body
 
     if (!conversation_id || !content?.trim()) {
       return NextResponse.json({ error: 'Conversation ID and content are required' }, { status: 400 })
@@ -97,7 +97,8 @@ export async function POST(request: NextRequest) {
         conversation_id,
         sender_id: user.id,
         content: content.trim(),
-        media_url: media_url || null
+        media_url: media_url || null,
+        reply_to_id: reply_to_id || null
       })
       .select(`
         *,

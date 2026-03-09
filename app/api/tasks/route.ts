@@ -169,19 +169,6 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Award points if task doesn't require verification or is auto-verified
-      if (!task.verification_required) {
-        await supabase
-          .rpc('add_reputation_points', {
-            user_uuid: userId,
-            action_type_param: 'task_completed',
-            points_param: task.points,
-            reference_id_param: taskId,
-            reference_type_param: 'task',
-            description_param: `Completed task: ${task.title}`
-          })
-      }
-
       return NextResponse.json({ 
         completion,
         message: task.verification_required 
@@ -306,19 +293,6 @@ export async function PUT(request: NextRequest) {
         { error: 'Failed to update verification status' },
         { status: 500 }
       )
-    }
-
-    // Award points if verified
-    if (verificationStatus === 'verified') {
-      await supabase
-        .rpc('add_reputation_points', {
-          user_uuid: completion.user_id,
-          action_type_param: 'verified_action',
-          points_param: completion.sustainability_tasks.points,
-          reference_id_param: completion.task_id,
-          reference_type_param: 'task',
-          description_param: `Task verified: ${completion.sustainability_tasks.title}`
-        })
     }
 
     return NextResponse.json({ 
