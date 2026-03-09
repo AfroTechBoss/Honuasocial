@@ -196,10 +196,21 @@ export default function ConversationPage() {
         })
 
         if (!markReadResponse.ok) {
-          throw new Error('Failed to mark messages as read')
+          const payload = await markReadResponse.json().catch(() => null)
+          const reason = payload?.error || `HTTP ${markReadResponse.status}`
+          console.warn('Mark-read sync skipped:', reason)
+
+          if (!hasShownReadSyncWarning) {
+            toast({
+              title: 'Heads up',
+              description: 'Messages loaded, but read status may be delayed.',
+              variant: 'default',
+            })
+            setHasShownReadSyncWarning(true)
+          }
         }
       } catch (markReadError) {
-        console.error('Error marking messages as read:', markReadError)
+        console.warn('Mark-read request failed:', markReadError)
         if (!hasShownReadSyncWarning) {
           toast({
             title: 'Heads up',

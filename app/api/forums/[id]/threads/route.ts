@@ -45,7 +45,7 @@ export async function GET(
     const repliesByThread = new Map<string, number>()
 
     if (threadIds.length > 0) {
-      const threadIdsCsv = threadIds.map((threadId) => '"' + threadId + '"').join(',')
+      const threadIdsCsv = threadIds.join(',')
       const { data: comments, error: commentsError } = await supabase
         .from('comments')
         .select('id, thread_id, post_id')

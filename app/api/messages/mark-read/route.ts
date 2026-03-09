@@ -5,12 +5,16 @@ import { NextRequest, NextResponse } from 'next/server'
 /**
  * POST /api/messages/mark-read
  * Body: { conversation_id: string }
- * Marks all messages in the conversation that were sent by the other user as delivered_at and read_at (current user is the recipient).
+ * Marks all messages in the conversation that were sent by the other user as delivered/read for the current user.
  */
 export async function POST(request: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -31,25 +35,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    const isParticipant =
-      conv.participant_one_id === user.id || conv.participant_two_id === user.id
+    const isParticipant = conv.participant_one_id === user.id || conv.participant_two_id === user.id
     if (!isParticipant) {
       return NextResponse.json({ error: 'Not a participant' }, { status: 403 })
     }
 
-    const otherUserId =
-      conv.participant_one_id === user.id ? conv.participant_two_id : conv.participant_one_id
+    const otherUserId = conv.participant_one_id === user.id ? conv.participant_two_id : conv.participant_one_id
 
     const now = new Date().toISOString()
-    const { error: updateError } = await supabase
+
+    // Primary update: delivered + read.
+    let { error: updateError } = await supabase
       .from('messages')
       .update({
         delivered_at: now,
         read_at: now,
-        updated_at: now
+        updated_at: now,
       })
       .eq('conversation_id', conversation_id)
       .eq('sender_id', otherUserId)
+
+    // Backward-compatible fallback for databases without read_at column.
+    if (updateError && /read_at/i.test(updateError.message || '')) {
+      const fallback = await supabase
+        .from('messages')
+        .update({
+          delivered_at: now,
+          updated_at: now,
+        })
+        .eq('conversation_id', conversation_id)
+        .eq('sender_id', otherUserId)
+
+      updateError = fallback.error || null
+    }
 
     if (updateError) {
       console.error('Error marking messages read:', updateError)
