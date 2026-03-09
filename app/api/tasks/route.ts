@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
     const completed = searchParams.get('completed')
 
     if (userId && completed !== null) {
-      // Get user's completed tasks
       const { data: completedTasks, error } = await supabase
         .from('user_task_completions')
         .select(`
@@ -39,67 +38,56 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         console.error('Error fetching completed tasks:', error)
-        return NextResponse.json(
-          { error: 'Failed to fetch completed tasks' },
-          { status: 500 }
-        )
+        return NextResponse.json({ error: 'Failed to fetch completed tasks' }, { status: 500 })
       }
 
       return NextResponse.json({ tasks: completedTasks })
-    } else {
-      // Get all available tasks
-      let query = supabase
-        .from('sustainability_tasks')
-        .select('*')
-        .order('difficulty', { ascending: true })
-        .order('points', { ascending: true })
-
-      if (category) {
-        query = query.eq('category', category)
-      }
-
-      if (difficulty) {
-        query = query.eq('difficulty', difficulty)
-      }
-
-      const { data: tasks, error } = await query
-
-      if (error) {
-        console.error('Error fetching tasks:', error)
-        return NextResponse.json(
-          { error: 'Failed to fetch tasks' },
-          { status: 500 }
-        )
-      }
-
-      // If userId is provided, also get completion status for each task
-      if (userId) {
-        const { data: completions } = await supabase
-          .from('user_task_completions')
-          .select('task_id, verification_status')
-          .eq('user_id', userId)
-
-        const completionMap = new Map()
-        completions?.forEach(completion => {
-          completionMap.set(completion.task_id, completion.verification_status)
-        })
-
-        const tasksWithStatus = tasks?.map(task => ({
-          ...task,
-          completion_status: completionMap.get(task.id) || null
-        }))
-
-        return NextResponse.json({ tasks: tasksWithStatus })
-      }
-
-      return NextResponse.json({ tasks })
     }
+
+    let query = supabase
+      .from('sustainability_tasks')
+      .select('*')
+      .order('difficulty', { ascending: true })
+      .order('points', { ascending: true })
+
+    if (category) {
+      query = query.eq('category', category)
+    }
+
+    if (difficulty) {
+      query = query.eq('difficulty', difficulty)
+    }
+
+    const { data: tasks, error } = await query
+
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 })
+    }
+
+    if (userId) {
+      const { data: completions } = await supabase
+        .from('user_task_completions')
+        .select('task_id, verification_status')
+        .eq('user_id', userId)
+
+      const completionMap = new Map()
+      completions?.forEach((completion) => {
+        completionMap.set(completion.task_id, completion.verification_status)
+      })
+
+      const tasksWithStatus = tasks?.map((task) => ({
+        ...task,
+        completion_status: completionMap.get(task.id) || null,
+      }))
+
+      return NextResponse.json({ tasks: tasksWithStatus })
+    }
+
+    return NextResponse.json({ tasks })
   } catch (error) {
     console.error('Error in tasks GET:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
@@ -110,17 +98,12 @@ export async function POST(request: NextRequest) {
     const { action } = body
 
     if (action === 'complete') {
-      // Complete a task
       const { userId, taskId, verificationProof } = body
 
       if (!userId || !taskId) {
-        return NextResponse.json(
-          { error: 'userId and taskId are required' },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: 'userId and taskId are required' }, { status: 400 })
       }
 
-      // Check if task exists
       const { data: task, error: taskError } = await supabase
         .from('sustainability_tasks')
         .select('*')
@@ -128,13 +111,9 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (taskError || !task) {
-        return NextResponse.json(
-          { error: 'Task not found' },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: 'Task not found' }, { status: 404 })
       }
 
-      // Check if user already completed this task
       const { data: existingCompletion } = await supabase
         .from('user_task_completions')
         .select('id')
@@ -143,96 +122,81 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (existingCompletion) {
-        return NextResponse.json(
-          { error: 'Task already completed' },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: 'Task already completed' }, { status: 400 })
       }
 
-      // Create task completion
       const { data: completion, error: completionError } = await supabase
         .from('user_task_completions')
         .insert({
           user_id: userId,
           task_id: taskId,
           verification_proof: verificationProof || null,
-          verification_status: task.verification_required ? 'pending' : 'verified'
+          verification_status: task.verification_required ? 'pending' : 'verified',
         })
         .select()
         .single()
 
       if (completionError) {
         console.error('Error creating task completion:', completionError)
-        return NextResponse.json(
-          { error: 'Failed to complete task' },
-          { status: 500 }
-        )
+        return NextResponse.json({ error: 'Failed to complete task' }, { status: 500 })
       }
 
-      return NextResponse.json({ 
-        completion,
-        message: task.verification_required 
-          ? 'Task submitted for verification' 
-          : 'Task completed successfully'
-      }, { status: 201 })
+      return NextResponse.json(
+        {
+          completion,
+          message: task.verification_required
+            ? 'Task submitted for verification'
+            : 'Task completed successfully',
+        },
+        { status: 201 }
+      )
+    }
 
-    } else {
-      // Create a new task (admin only)
-      const {
+    const {
+      title,
+      description,
+      category,
+      difficulty,
+      points,
+      impactScore,
+      verificationRequired,
+    } = body
+
+    if (!title || !description || !category || !difficulty) {
+      return NextResponse.json(
+        { error: 'Title, description, category, and difficulty are required' },
+        { status: 400 }
+      )
+    }
+
+    const validDifficulties = ['easy', 'medium', 'hard']
+    if (!validDifficulties.includes(difficulty)) {
+      return NextResponse.json({ error: 'Invalid difficulty level' }, { status: 400 })
+    }
+
+    const { data: task, error } = await supabase
+      .from('sustainability_tasks')
+      .insert({
         title,
         description,
         category,
         difficulty,
-        points,
-        impactScore,
-        verificationRequired
-      } = body
+        points: points || 0,
+        impact_score: impactScore || 0,
+        verification_required: verificationRequired || false,
+      })
+      .select()
+      .single()
 
-      if (!title || !description || !category || !difficulty) {
-        return NextResponse.json(
-          { error: 'Title, description, category, and difficulty are required' },
-          { status: 400 }
-        )
-      }
-
-      const validDifficulties = ['easy', 'medium', 'hard']
-      if (!validDifficulties.includes(difficulty)) {
-        return NextResponse.json(
-          { error: 'Invalid difficulty level' },
-          { status: 400 }
-        )
-      }
-
-      const { data: task, error } = await supabase
-        .from('sustainability_tasks')
-        .insert({
-          title,
-          description,
-          category,
-          difficulty,
-          points: points || 0,
-          impact_score: impactScore || 0,
-          verification_required: verificationRequired || false
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Error creating task:', error)
-        return NextResponse.json(
-          { error: 'Failed to create task' },
-          { status: 500 }
-        )
-      }
-
-      return NextResponse.json({ task }, { status: 201 })
+    if (error) {
+      console.error('Error creating task:', error)
+      return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })
     }
+
+    return NextResponse.json({ task }, { status: 201 })
   } catch (error) {
     console.error('Error in tasks POST:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
@@ -251,59 +215,39 @@ export async function PUT(request: NextRequest) {
 
     const validStatuses = ['verified', 'rejected']
     if (!validStatuses.includes(verificationStatus)) {
-      return NextResponse.json(
-        { error: 'Invalid verification status' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Invalid verification status' }, { status: 400 })
     }
 
-    // Get the task completion
     const { data: completion, error: completionError } = await supabase
       .from('user_task_completions')
-      .select(`
-        *,
-        sustainability_tasks (
-          title,
-          points
-        )
-      `)
+      .select('id')
       .eq('id', completionId)
       .single()
 
     if (completionError || !completion) {
-      return NextResponse.json(
-        { error: 'Task completion not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Task completion not found' }, { status: 404 })
     }
 
-    // Update verification status
     const { error: updateError } = await supabase
       .from('user_task_completions')
       .update({
         verification_status: verificationStatus,
         verified_by: verifiedBy,
-        verified_at: new Date().toISOString()
+        verified_at: new Date().toISOString(),
       })
       .eq('id', completionId)
 
     if (updateError) {
       console.error('Error updating task verification:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to update verification status' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Failed to update verification status' }, { status: 500 })
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: `Task ${verificationStatus} successfully`
+      message: `Task ${verificationStatus} successfully`,
     })
   } catch (error) {
     console.error('Error in tasks PUT:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

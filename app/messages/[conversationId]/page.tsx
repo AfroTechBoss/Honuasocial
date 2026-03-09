@@ -69,6 +69,7 @@ export default function ConversationPage() {
   const [loading, setLoading] = useState(true)
   const [sendingMessage, setSendingMessage] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [hasShownReadSyncWarning, setHasShownReadSyncWarning] = useState(false)
 
   const normalizeConversation = (conv: any): Conversation => {
     const fallbackOtherId = conv.participant_one_id === user?.id ? conv.participant_two_id : conv.participant_one_id
@@ -102,11 +103,19 @@ export default function ConversationPage() {
     }
   }
 
-    const isGenericParticipant = (participant?: Conversation['otherParticipant']) => {
+  const isGenericParticipant = (participant?: Conversation['otherParticipant']) => {
     if (!participant) return true
     const fullName = (participant.full_name || '').trim().toLowerCase()
     const username = (participant.username || '').trim().toLowerCase()
     return fullName === '' || fullName === 'user' || username === '' || username === 'user'
+  }
+
+  const notifyConversationLoadFailure = () => {
+    toast({
+      title: 'Error',
+      description: 'Failed to load conversation',
+      variant: 'destructive',
+    })
   }
 
   const fetchConversationFromList = async (): Promise<Conversation | null> => {
@@ -156,19 +165,19 @@ export default function ConversationPage() {
 
       const fallbackConversation = await fetchConversationFromList()
       if (!fallbackConversation) {
-        throw new Error('Failed to fetch conversation')
+        setConversation(null)
+        notifyConversationLoadFailure()
+        return
       }
 
       setConversation(fallbackConversation)
     } catch (error) {
       console.error('Error fetching conversation:', error)
-      toast({
-        title: 'Error',
-        description: 'Failed to load conversation',
-        variant: 'destructive',
-      })
+      setConversation(null)
+      notifyConversationLoadFailure()
     }
   }
+
   const fetchMessages = async () => {
     try {
       const response = await fetch(`/api/messages?conversation_id=${conversationId}`)
@@ -179,11 +188,27 @@ export default function ConversationPage() {
       const data = await response.json()
       setMessages(Array.isArray(data) ? data : [])
 
-      fetch('/api/messages/mark-read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversation_id: conversationId }),
-      }).catch(() => {})
+      try {
+        const markReadResponse = await fetch('/api/messages/mark-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: conversationId }),
+        })
+
+        if (!markReadResponse.ok) {
+          throw new Error('Failed to mark messages as read')
+        }
+      } catch (markReadError) {
+        console.error('Error marking messages as read:', markReadError)
+        if (!hasShownReadSyncWarning) {
+          toast({
+            title: 'Heads up',
+            description: 'Messages loaded, but read status may be delayed.',
+            variant: 'default',
+          })
+          setHasShownReadSyncWarning(true)
+        }
+      }
     } catch (error) {
       console.error('Error fetching messages:', error)
       toast({
@@ -269,7 +294,6 @@ export default function ConversationPage() {
     }
   }, [user?.id, conversationId])
 
-
   useEffect(() => {
     if (!conversation || !user?.id || messages.length === 0) return
     if (!isGenericParticipant(conversation.otherParticipant)) return
@@ -295,6 +319,7 @@ export default function ConversationPage() {
       }
     })
   }, [messages, conversation, user?.id])
+
   if (authLoading) {
     return (
       <MainLayout>
@@ -415,6 +440,3 @@ export default function ConversationPage() {
     </MainLayout>
   )
 }
-
-
-

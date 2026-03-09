@@ -32,24 +32,17 @@ export async function GET(
     const supabase = createRouteHandlerClient({ cookies })
     const params = await context.params
     const { id: threadId } = params
-    const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
-    const offset = (page - 1) * limit
 
-    // Get current user session (optional for viewing comments)
     const {
       data: { session },
     } = await supabase.auth.getSession()
 
-    // Verify thread exists
     const { data: thread, error: threadError } = await supabase.from('threads').select('id').eq('id', threadId).single()
 
     if (threadError || !thread) {
       return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
     }
 
-    // Get all comments for the thread, then build a nested tree.
     const { data: comments, error: commentsError } = await supabase
       .from('comments')
       .select(
@@ -77,6 +70,8 @@ export async function GET(
     }
 
     const rawComments = (comments || []) as RawComment[]
+    const totalComments = rawComments.length
+
     const commentIds = rawComments.map((comment) => comment.id)
     const userVotes = new Map<string, 'up' | 'down' | null>()
 
@@ -113,9 +108,6 @@ export async function GET(
       }
     }
 
-    const totalTopLevel = rootComments.length
-    const paginatedRoots = rootComments.slice(offset, offset + limit)
-
     const serializeComment = (comment: CommentNode): any => ({
       id: comment.id,
       content: comment.content,
@@ -126,23 +118,30 @@ export async function GET(
         avatar_url: comment.profiles?.avatar_url || '/placeholder.svg',
         badges: [],
       },
-      likes_count: 0, // Will be implemented with proper vote system
-      dislikes_count: 0, // Will be implemented with proper vote system
+      likes_count: 0,
+      dislikes_count: 0,
       created_at: comment.created_at,
       user_vote: userVotes.get(comment.id) || null,
       replies: comment.children.map(serializeComment),
     })
 
-    const commentsWithReplies = paginatedRoots.map(serializeComment)
+    const commentsWithReplies = rootComments.map(serializeComment)
 
-    return NextResponse.json({
-      comments: commentsWithReplies,
-      pagination: {
-        page,
-        limit,
-        total: totalTopLevel,
+    return NextResponse.json(
+      {
+        comments: commentsWithReplies,
+        pagination: {
+          page: 1,
+          limit: totalComments,
+          total: totalComments,
+        },
       },
-    })
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
+        },
+      }
+    )
   } catch (error) {
     console.error('Error in GET /api/threads/[id]/comments:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -160,7 +159,6 @@ export async function POST(
     const { id: threadId } = params
     const { content, parent_id } = await request.json()
 
-    // Check if user is authenticated
     const {
       data: { session },
     } = await supabase.auth.getSession()
@@ -168,14 +166,12 @@ export async function POST(
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
-    // Verify thread exists
     const { data: thread, error: threadError } = await supabase.from('threads').select('id').eq('id', threadId).single()
 
     if (threadError || !thread) {
       return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
     }
 
-    // If parent_id is provided, verify the parent comment exists
     if (parent_id) {
       const { data: parentComment, error: parentError } = await supabase
         .from('comments')
@@ -189,15 +185,12 @@ export async function POST(
       }
     }
 
-    // Create the comment
-    // Try to insert with thread_id first, fallback to post_id if thread_id column doesn't exist
     let insertData: any = {
       content,
       user_id: session.user.id,
       parent_id: parent_id || null,
     }
 
-    // Check if thread_id column exists by trying to insert with it first
     insertData.thread_id = threadId
 
     let { data: comment, error: commentError } = await supabase
@@ -219,9 +212,7 @@ export async function POST(
       )
       .single()
 
-    // If thread_id column doesn't exist, fallback to post_id
     if (commentError && commentError.message?.includes('thread_id')) {
-      console.log('thread_id column not found, falling back to post_id')
       insertData = {
         content,
         post_id: threadId,
@@ -257,7 +248,6 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 })
     }
 
-    // Format the response
     const formattedComment = {
       id: comment.id,
       content: comment.content,
@@ -268,8 +258,8 @@ export async function POST(
         avatar_url: (comment.profiles as any)?.avatar_url || '/placeholder.svg',
         badges: [],
       },
-      likes_count: 0, // Will be implemented with proper vote system
-      dislikes_count: 0, // Will be implemented with proper vote system
+      likes_count: 0,
+      dislikes_count: 0,
       created_at: comment.created_at,
       user_vote: null,
       replies: [],
@@ -281,4 +271,3 @@ export async function POST(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
